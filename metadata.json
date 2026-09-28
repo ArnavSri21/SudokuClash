@@ -1,0 +1,6 @@
+{
+  "name": "Obsidian Sudoku",
+  "description": "Minimalist dark mode Sudoku with persistent game session timer, daily streaks, innovative stickers, and competitive leaderboards.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
