@@ -5,7 +5,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -16,12 +15,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
-import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,68 +29,81 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.data.model.Cell
-import com.example.ui.theme.CellBgError
-import com.example.ui.theme.CellBgHighlighted
-import com.example.ui.theme.CellBgNormal
-import com.example.ui.theme.CellBgSameNumber
-import com.example.ui.theme.CellBgSelected
-import com.example.ui.theme.DigitError
-import com.example.ui.theme.DigitGiven
-import com.example.ui.theme.DigitNote
-import com.example.ui.theme.DigitUser
-import com.example.ui.theme.NeonAmber
-import com.example.ui.theme.NeonCyan
+import com.example.ui.model.Cell
+import com.example.ui.theme.CellErrorText
+import com.example.ui.theme.CellGivenText
+import com.example.ui.theme.CellHintHighlight
+import com.example.ui.theme.CellNoteText
+import com.example.ui.theme.CellRelated
+import com.example.ui.theme.CellSameNumber
+import com.example.ui.theme.CellSelected
+import com.example.ui.theme.CellUserText
 import com.example.ui.theme.ObsidianBorder
-import com.example.ui.theme.ObsidianDivider
+import com.example.ui.theme.ObsidianBorderStrong
+import com.example.ui.theme.ObsidianCard
+import com.example.ui.theme.ObsidianErrorBg
+import com.example.ui.theme.ObsidianPrimary
+import com.example.ui.theme.ObsidianSurface
 
 @Composable
 fun SudokuGridView(
     board: List<List<Cell>>,
-    selectedCell: Pair<Int, Int>?,
+    selectedRow: Int?,
+    selectedCol: Int?,
     onCellClick: (Int, Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val selectedVal = selectedCell?.let { (r, c) -> board.getOrNull(r)?.getOrNull(c)?.value } ?: 0
+    if (board.size != 9 || board.any { it.size != 9 }) {
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .background(ObsidianCard, RoundedCornerShape(12.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("Preparing Board...", color = Color.White)
+        }
+        return
+    }
+
+    val selectedValue = if (selectedRow != null && selectedCol != null) {
+        board[selectedRow][selectedCol].value
+    } else 0
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .aspectRatio(1f)
             .clip(RoundedCornerShape(12.dp))
-            .background(Color(0xFF0C1017))
-            .border(2.dp, ObsidianDivider, RoundedCornerShape(12.dp))
-            .testTag("sudoku_grid_view"),
-        contentAlignment = Alignment.Center
+            .background(ObsidianSurface)
+            .border(2.dp, ObsidianBorderStrong, RoundedCornerShape(12.dp))
+            .padding(2.dp)
+            .testTag("sudoku_grid")
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            for (row in 0 until 9) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            for (r in 0 until 9) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .weight(1f)
                 ) {
-                    for (col in 0 until 9) {
-                        val cell = board[row][col]
-                        val isSelected = selectedCell?.first == row && selectedCell.second == col
-                        val isSameRowOrColOrBox = selectedCell != null && (
-                            selectedCell.first == row ||
-                                selectedCell.second == col ||
-                                ((selectedCell.first / 3 == row / 3) && (selectedCell.second / 3 == col / 3))
-                            )
-                        val isSameNum = selectedVal > 0 && cell.value == selectedVal
+                    for (c in 0 until 9) {
+                        val cell = board[r][c]
+                        val isSelected = (r == selectedRow && c == selectedCol)
+                        val isRelated = (r == selectedRow || c == selectedCol ||
+                                (selectedRow != null && selectedCol != null &&
+                                        (r / 3 == selectedRow / 3) && (c / 3 == selectedCol / 3)))
+                        val isSameNum = (selectedValue != 0 && cell.value == selectedValue)
 
                         SudokuCellView(
                             cell = cell,
                             isSelected = isSelected,
-                            isHighlighted = isSameRowOrColOrBox,
+                            isRelated = isRelated,
                             isSameNumber = isSameNum,
-                            onClick = { onCellClick(row, col) },
-                            modifier = Modifier.weight(1f)
+                            onClick = { onCellClick(r, c) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
                         )
                     }
                 }
@@ -102,105 +113,108 @@ fun SudokuGridView(
 }
 
 @Composable
-private fun SudokuCellView(
+fun SudokuCellView(
     cell: Cell,
     isSelected: Boolean,
-    isHighlighted: Boolean,
+    isRelated: Boolean,
     isSameNumber: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val targetBgColor = when {
-        cell.isError -> CellBgError
-        isSelected -> CellBgSelected
-        isSameNumber -> CellBgSameNumber
-        cell.isHinted -> Color(0x33FFB300)
-        isHighlighted -> CellBgHighlighted
-        else -> CellBgNormal
+        cell.isError -> ObsidianErrorBg
+        isSelected -> CellSelected
+        isSameNumber -> CellSameNumber
+        cell.isHint -> CellHintHighlight
+        isRelated -> CellRelated
+        else -> Color.Transparent
     }
 
-    val animatedBg by animateColorAsState(
+    val animatedBgColor by animateColorAsState(
         targetValue = targetBgColor,
-        animationSpec = tween(durationMillis = 150),
+        animationSpec = tween(150),
         label = "cellBg"
     )
 
-    val isRightBorderThick = cell.col == 2 || cell.col == 5
-    val isBottomBorderThick = cell.row == 2 || cell.row == 5
-
-    val endPadding = if (isRightBorderThick) 1.5.dp else 0.5.dp
-    val bottomPadding = if (isBottomBorderThick) 1.5.dp else 0.5.dp
+    // Border thickness for 3x3 blocks
+    val isBottomThick = (cell.row % 3 == 2 && cell.row != 8)
+    val isRightThick = (cell.col % 3 == 2 && cell.col != 8)
 
     Box(
         modifier = modifier
-            .fillMaxHeight()
-            .padding(end = endPadding, bottom = bottomPadding)
-            .background(if (isRightBorderThick || isBottomBorderThick) ObsidianDivider else ObsidianBorder)
+            .background(animatedBgColor)
+            .border(
+                width = 0.5.dp,
+                color = ObsidianBorder
+            )
+            .clickable { onClick() }
+            .testTag("cell_${cell.row}_${cell.col}"),
+        contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(animatedBg)
-                .then(
-                    if (isSelected) {
-                        Modifier.border(2.dp, NeonCyan)
-                    } else if (cell.isHinted) {
-                        Modifier.border(2.dp, NeonAmber)
-                    } else {
-                        Modifier
-                    }
-                )
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = ripple(color = NeonCyan),
-                    onClick = onClick
-                )
-                .testTag("sudoku_cell_${cell.row}_${cell.col}"),
-            contentAlignment = Alignment.Center
-        ) {
-            when {
-                cell.value != 0 -> {
-                    val digitColor = when {
-                        cell.isError -> DigitError
-                        cell.isGiven -> DigitGiven
-                        else -> DigitUser
-                    }
+        // Block separator borders
+        if (isRightThick) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxHeight()
+                    .size(width = 2.dp, height = 0.dp)
+                    .background(ObsidianBorderStrong)
+            )
+        }
+        if (isBottomThick) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .size(width = 0.dp, height = 2.dp)
+                    .background(ObsidianBorderStrong)
+            )
+        }
 
+        if (cell.value != 0) {
+            val textColor = when {
+                cell.isError -> CellErrorText
+                cell.isGiven -> CellGivenText
+                cell.isHint -> ObsidianPrimary
+                else -> CellUserText
+            }
+
+            Text(
+                text = cell.value.toString(),
+                color = textColor,
+                fontSize = 20.sp,
+                fontWeight = if (cell.isGiven) FontWeight.Bold else FontWeight.SemiBold,
+                textAlign = TextAlign.Center
+            )
+        } else if (cell.notes.isNotEmpty()) {
+            // Notes 3x3 display
+            NotesGridView(notes = cell.notes)
+        }
+    }
+}
+
+@Composable
+fun NotesGridView(notes: Set<Int>) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(1.dp),
+        verticalArrangement = Arrangement.SpaceEvenly
+    ) {
+        for (row in 0 until 3) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                for (col in 0 until 3) {
+                    val digit = row * 3 + col + 1
                     Text(
-                        text = cell.value.toString(),
-                        fontSize = 24.sp,
-                        fontWeight = if (cell.isGiven) FontWeight.Bold else FontWeight.SemiBold,
-                        color = digitColor,
+                        text = if (notes.contains(digit)) digit.toString() else " ",
+                        color = CellNoteText,
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Medium,
                         textAlign = TextAlign.Center
                     )
-                }
-                cell.notes.isNotEmpty() -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(2.dp),
-                        verticalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        for (noteRow in 0..2) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly
-                            ) {
-                                for (noteCol in 0..2) {
-                                    val digit = noteRow * 3 + noteCol + 1
-                                    val hasDigit = cell.notes.contains(digit)
-                                    Text(
-                                        text = if (hasDigit) digit.toString() else "",
-                                        fontSize = 8.5.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = DigitNote,
-                                        textAlign = TextAlign.Center,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }

@@ -1,0 +1,220 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidGameSession(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.difficulty is string && data.difficulty in ['EASY', 'MEDIUM', 'HARD', 'EXPERT', 'DAILY'] &&
+             data.timerSeconds is int && data.timerSeconds >= 0 && data.timerSeconds <= 3600000 &&
+             data.mistakes is int && data.mistakes >= 0 && data.mistakes <= 100 &&
+             data.isPaused is bool &&
+             data.isDaily is bool &&
+             data.boardData is string && data.boardData.size() >= 1 && data.boardData.size() <= 2000 &&
+             data.solutionData is string && data.solutionData.size() >= 1 && data.solutionData.size() <= 500 &&
+             data.notesData is string && data.notesData.size() <= 4000 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidDailyChallenge(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.dateString is string && data.dateString.size() >= 8 && data.dateString.size() <= 20 &&
+             data.difficulty is string && data.difficulty in ['EASY', 'MEDIUM', 'HARD', 'EXPERT', 'DAILY'] &&
+             data.completed is bool &&
+             data.timeSpentSeconds is int && data.timeSpentSeconds >= 0 && data.timeSpentSeconds <= 3600000 &&
+             data.mistakes is int && data.mistakes >= 0 && data.mistakes <= 100 &&
+             data.starsAwarded is int && data.starsAwarded >= 0 && data.starsAwarded <= 5 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidSticker(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 100 &&
+             data.description is string && data.description.size() >= 1 && data.description.size() <= 300 &&
+             data.iconName is string && data.iconName.size() >= 1 && data.iconName.size() <= 50 &&
+             data.category is string && data.category.size() >= 1 && data.category.size() <= 50 &&
+             data.unlocked is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidGameStats(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.difficulty is string && data.difficulty in ['EASY', 'MEDIUM', 'HARD', 'EXPERT', 'DAILY'] &&
+             data.gamesPlayed is int && data.gamesPlayed >= 0 && data.gamesPlayed <= 1000000 &&
+             data.gamesWon is int && data.gamesWon >= 0 && data.gamesWon <= data.gamesPlayed &&
+             data.bestTimeSeconds is int && data.bestTimeSeconds >= 0 && data.bestTimeSeconds <= 3600000 &&
+             data.totalTimeSeconds is int && data.totalTimeSeconds >= 0 && data.totalTimeSeconds <= 360000000 &&
+             data.winStreak is int && data.winStreak >= 0 && data.winStreak <= 1000000 &&
+             data.perfectGames is int && data.perfectGames >= 0 && data.perfectGames <= data.gamesWon &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /users/{userId} {
+      match /sessions/{sessionId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(sessionId);
+        allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+
+        allow create: if isOwner(userId) &&
+                         isValidId(userId) &&
+                         isValidId(sessionId) &&
+                         incoming().keys().hasAll([
+                           'userId', 'difficulty', 'timerSeconds', 'mistakes',
+                           'isPaused', 'isDaily', 'boardData', 'solutionData',
+                           'notesData', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'difficulty', 'timerSeconds', 'mistakes',
+                           'isPaused', 'isDaily', 'boardData', 'solutionData',
+                           'notesData', 'createdAt', 'updatedAt'
+                         ]) &&
+                         isValidGameSession(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(userId) &&
+                         isValidId(sessionId) &&
+                         isValidGameSession(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'difficulty', 'timerSeconds', 'mistakes',
+                           'isPaused', 'isDaily', 'boardData', 'solutionData',
+                           'notesData', 'updatedAt'
+                         ]);
+
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(sessionId);
+      }
+
+      match /daily_challenges/{dateString} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(dateString);
+        allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+
+        allow create: if isOwner(userId) &&
+                         isValidId(userId) &&
+                         isValidId(dateString) &&
+                         incoming().dateString == dateString &&
+                         incoming().keys().hasAll([
+                           'userId', 'dateString', 'difficulty', 'completed',
+                           'timeSpentSeconds', 'mistakes', 'starsAwarded',
+                           'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'dateString', 'difficulty', 'completed',
+                           'timeSpentSeconds', 'mistakes', 'starsAwarded',
+                           'createdAt', 'updatedAt'
+                         ]) &&
+                         isValidDailyChallenge(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(userId) &&
+                         isValidId(dateString) &&
+                         isValidDailyChallenge(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().dateString == existing().dateString &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'difficulty', 'completed', 'timeSpentSeconds',
+                           'mistakes', 'starsAwarded', 'updatedAt'
+                         ]);
+
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(dateString);
+      }
+
+      match /stickers/{stickerId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(stickerId);
+        allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+
+        allow create: if isOwner(userId) &&
+                         isValidId(userId) &&
+                         isValidId(stickerId) &&
+                         incoming().keys().hasAll([
+                           'userId', 'title', 'description', 'iconName',
+                           'category', 'unlocked', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'title', 'description', 'iconName',
+                           'category', 'unlocked', 'createdAt', 'updatedAt'
+                         ]) &&
+                         isValidSticker(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(userId) &&
+                         isValidId(stickerId) &&
+                         isValidSticker(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'title', 'description', 'iconName', 'category',
+                           'unlocked', 'updatedAt'
+                         ]);
+
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(stickerId);
+      }
+
+      match /game_stats/{difficulty} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(difficulty);
+        allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+
+        allow create: if isOwner(userId) &&
+                         isValidId(userId) &&
+                         isValidId(difficulty) &&
+                         incoming().difficulty == difficulty &&
+                         incoming().keys().hasAll([
+                           'userId', 'difficulty', 'gamesPlayed', 'gamesWon',
+                           'bestTimeSeconds', 'totalTimeSeconds', 'winStreak',
+                           'perfectGames', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'difficulty', 'gamesPlayed', 'gamesWon',
+                           'bestTimeSeconds', 'totalTimeSeconds', 'winStreak',
+                           'perfectGames', 'createdAt', 'updatedAt'
+                         ]) &&
+                         isValidGameStats(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(userId) &&
+                         isValidId(difficulty) &&
+                         isValidGameStats(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().difficulty == existing().difficulty &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'gamesPlayed', 'gamesWon', 'bestTimeSeconds',
+                           'totalTimeSeconds', 'winStreak', 'perfectGames',
+                           'updatedAt'
+                         ]);
+
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(difficulty);
+      }
+    }
+  }
+}

@@ -2,43 +2,50 @@ package com.example.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.data.database.entity.GameRecordEntity
-import com.example.data.database.entity.StickerEntity
-import com.example.data.model.Cell
-import com.example.data.model.Difficulty
-import com.example.data.model.GameMove
-import com.example.data.model.HintResult
+import com.example.data.model.GameSessionEntity
 import com.example.data.repository.SudokuRepository
-import com.example.engine.SudokuEngine
+import com.example.logic.Difficulty
+import com.example.logic.SudokuEngine
+import com.example.ui.model.Cell
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
+
+data class BoardSnapshot(
+    val board: List<List<Cell>>,
+    val mistakes: Int
+)
 
 data class SudokuUiState(
-    val board: List<List<Cell>> = emptyList(),
-    val selectedCell: Pair<Int, Int>? = null,
-    val difficulty: Difficulty = Difficulty.MEDIUM,
+    val board: List<List<Cell>> = createEmptyBoard(),
+    val solution: Array<IntArray> = Array(9) { IntArray(9) },
+    val selectedRow: Int? = null,
+    val selectedCol: Int? = null,
+    val difficulty: Difficulty = Difficulty.EASY,
     val isDaily: Boolean = false,
-    val dailyDate: String = "",
-    val elapsedSeconds: Long = 0,
+    val timerSeconds: Long = 0L,
     val isPaused: Boolean = false,
     val mistakes: Int = 0,
-    val maxMistakes: Int = 3,
-    val isNotesMode: Boolean = false,
-    val hintsUsed: Int = 0,
-    val activeHint: HintResult? = null,
+    val maxMistakes: Int = 5,
+    val isGameOver: Boolean = false,
     val isGameWon: Boolean = false,
-    val newlyUnlockedStickers: List<StickerEntity> = emptyList(),
-    val numberCounts: Map<Int, Int> = emptyMap(),
-    val canUndo: Boolean = false
+    val isNotesMode: Boolean = false,
+    val remainingCounts: Map<Int, Int> = (1..9).associateWith { 9 },
+    val feedbackMessage: String? = null
 )
+
+fun createEmptyBoard(): List<List<Cell>> {
+    return List(9) { r ->
+        List(9) { c ->
+            Cell(row = r, col = c)
+        }
+    }
+}
 
 class SudokuViewModel(
     private val repository: SudokuRepository
@@ -47,411 +54,396 @@ class SudokuViewModel(
     private val _uiState = MutableStateFlow(SudokuUiState())
     val uiState: StateFlow<SudokuUiState> = _uiState.asStateFlow()
 
-    private var solutionBoard: Array<IntArray> = Array(9) { IntArray(9) }
-    private var initialBoard: Array<IntArray> = Array(9) { IntArray(9) }
-    private val undoStack = mutableListOf<GameMove>()
+    private val undoStack = mutableListOf<BoardSnapshot>()
     private var timerJob: Job? = null
-    private var periodicSaveJob: Job? = null
 
     init {
-        val todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
         viewModelScope.launch {
-            repository.initializeDefaultsIfNeeded(todayStr)
-            
-            // Check for existing active game to restore session timer & board
-            val existing = repository.getActiveGameSync()
-            if (existing != null && existing.initialBoard.length == 81 && existing.solutionBoard.length == 81) {
-                restoreExistingGame(existing)
-            } else {
-                startNewGame(Difficulty.MEDIUM)
+            try {
+                repository.initDefaultStickers()
+                val session = repository.getActiveSessionOnce()
+                if (session != null && session.boardData.isNotEmpty()) {
+                    restoreSession(session)
+                } else {
+                    startNewGame(Difficulty.EASY, isDaily = false)
+                }
+            } catch (_: Exception) {
+                startNewGame(Difficulty.EASY, isDaily = false)
+            }
+        }
+        startTimerLoop()
+    }
+
+    private fun startTimerLoop() {
+        timerJob?.cancel()
+        timerJob = viewModelScope.launch {
+            var saveCounter = 0
+            while (true) {
+                delay(1000)
+                val state = _uiState.value
+                if (!state.isPaused && !state.isGameOver && !state.isGameWon) {
+                    _uiState.update { it.copy(timerSeconds = it.timerSeconds + 1) }
+                    saveCounter++
+                    if (saveCounter >= 5) {
+                        saveCounter = 0
+                        persistCurrentSession()
+                    }
+                }
             }
         }
     }
 
-    private fun restoreExistingGame(game: GameRecordEntity) {
-        val diff = Difficulty.values().firstOrNull { it.name == game.difficulty } ?: Difficulty.MEDIUM
-        val init = Array(9) { r ->
-            IntArray(9) { c ->
-                game.initialBoard[r * 9 + c].digitToInt()
-            }
-        }
-        val sol = Array(9) { r ->
-            IntArray(9) { c ->
-                game.solutionBoard[r * 9 + c].digitToInt()
-            }
-        }
-        val curr = List(9) { r ->
-            List(9) { c ->
-                val v = game.currentBoard[r * 9 + c].digitToInt()
-                val isG = game.initialBoard[r * 9 + c].digitToInt() != 0
-                val isErr = v != 0 && v != sol[r][c]
-                Cell(
-                    row = r,
-                    col = c,
-                    value = v,
-                    isGiven = isG,
-                    notes = emptySet(),
-                    isError = isErr,
-                    isHinted = false
+    private fun persistCurrentSession() {
+        val s = _uiState.value
+        if (s.isGameOver || s.isGameWon) return
+        viewModelScope.launch {
+            try {
+                val boardStr = serializeBoard(s.board)
+                val solutionStr = serializeIntMatrix(s.solution)
+                val notesStr = serializeNotes(s.board)
+                repository.saveActiveSession(
+                    difficulty = s.difficulty.name,
+                    timerSeconds = s.timerSeconds,
+                    mistakes = s.mistakes,
+                    isPaused = s.isPaused,
+                    isDaily = s.isDaily,
+                    boardData = boardStr,
+                    solutionData = solutionStr,
+                    notesData = notesStr
                 )
+            } catch (_: Exception) {
+                // Handled by structured FirestoreErrorHandler in repository
             }
         }
-
-        initialBoard = init
-        solutionBoard = sol
-        undoStack.clear()
-
-        _uiState.update {
-            it.copy(
-                board = curr,
-                selectedCell = null,
-                difficulty = diff,
-                isDaily = game.isDaily,
-                dailyDate = game.dailyDate ?: "",
-                elapsedSeconds = game.elapsedSeconds,
-                isPaused = game.isPaused,
-                mistakes = game.mistakes,
-                hintsUsed = game.hintsUsed,
-                isGameWon = false,
-                canUndo = false,
-                numberCounts = calculateNumberCounts(curr)
-            )
-        }
-
-        startTimer()
     }
 
     fun startNewGame(difficulty: Difficulty, isDaily: Boolean = false) {
-        val todayStr = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
-        val seed = if (isDaily) SudokuEngine.dateToSeed(todayStr) else null
-        val puzzle = SudokuEngine.generatePuzzle(difficulty, seed)
+        viewModelScope.launch {
+            try {
+                repository.clearActiveSession()
+            } catch (_: Exception) {
+                // Ignore if no active session exists
+            }
+            val seed = if (isDaily) repository.getTodayDateString().hashCode().toLong() else System.currentTimeMillis()
+            val generated = SudokuEngine.generatePuzzle(difficulty, seed)
 
-        solutionBoard = puzzle.solutionBoard
-        initialBoard = puzzle.initialBoard
-        undoStack.clear()
+            val newBoard = List(9) { r ->
+                List(9) { c ->
+                    val v = generated.initialBoard[r][c]
+                    Cell(
+                        row = r,
+                        col = c,
+                        value = v,
+                        isGiven = (v != 0),
+                        notes = emptySet()
+                    )
+                }
+            }
 
-        val newBoard = List(9) { r ->
-            List(9) { c ->
-                val v = puzzle.initialBoard[r][c]
-                Cell(
-                    row = r,
-                    col = c,
-                    value = v,
-                    isGiven = v != 0,
-                    notes = emptySet(),
-                    isError = false,
-                    isHinted = false
+            undoStack.clear()
+            _uiState.update {
+                it.copy(
+                    board = newBoard,
+                    solution = generated.solution,
+                    selectedRow = null,
+                    selectedCol = null,
+                    difficulty = difficulty,
+                    isDaily = isDaily,
+                    timerSeconds = 0L,
+                    isPaused = false,
+                    mistakes = 0,
+                    maxMistakes = difficulty.maxMistakes,
+                    isGameOver = false,
+                    isGameWon = false,
+                    isNotesMode = false,
+                    remainingCounts = calculateRemainingCounts(newBoard),
+                    feedbackMessage = if (isDaily) "Daily Challenge Initialized!" else "${difficulty.displayName} Game Started"
                 )
             }
+            persistCurrentSession()
         }
+    }
 
+    fun onCellClick(row: Int, col: Int) {
+        if (_uiState.value.isPaused || _uiState.value.isGameOver || _uiState.value.isGameWon) return
         _uiState.update {
             it.copy(
-                board = newBoard,
-                selectedCell = null,
-                difficulty = difficulty,
-                isDaily = isDaily,
-                dailyDate = todayStr,
-                elapsedSeconds = 0,
-                isPaused = false,
-                mistakes = 0,
-                hintsUsed = 0,
-                activeHint = null,
-                isGameWon = false,
-                newlyUnlockedStickers = emptyList(),
-                canUndo = false,
-                numberCounts = calculateNumberCounts(newBoard)
+                selectedRow = if (it.selectedRow == row && it.selectedCol == col) null else row,
+                selectedCol = if (it.selectedRow == row && it.selectedCol == col) null else col,
+                feedbackMessage = null
             )
         }
-
-        startTimer()
-        saveSessionToDatabase()
-    }
-
-    fun togglePauseTimer() {
-        val nextPaused = !_uiState.value.isPaused
-        _uiState.update { it.copy(isPaused = nextPaused) }
-        saveSessionToDatabase()
-    }
-
-    fun resumeTimer() {
-        if (_uiState.value.isPaused) {
-            _uiState.update { it.copy(isPaused = false) }
-            saveSessionToDatabase()
-        }
-    }
-
-    fun selectCell(row: Int, col: Int) {
-        if (_uiState.value.isPaused) return
-        _uiState.update { current ->
-            val updatedBoard = current.board.map { rList ->
-                rList.map { cell -> if (cell.isHinted) cell.copy(isHinted = false) else cell }
-            }
-            current.copy(
-                selectedCell = row to col,
-                board = updatedBoard,
-                activeHint = null
-            )
-        }
-    }
-
-    fun toggleNotesMode() {
-        _uiState.update { it.copy(isNotesMode = !it.isNotesMode) }
     }
 
     fun onNumberInput(digit: Int) {
         val state = _uiState.value
-        if (state.isPaused) return
-        val selected = state.selectedCell ?: return
-        val (row, col) = selected
-        val currentCell = state.board[row][col]
+        val r = state.selectedRow ?: return
+        val c = state.selectedCol ?: return
+        if (state.isPaused || state.isGameOver || state.isGameWon) return
 
-        if (currentCell.isGiven || currentCell.value == digit) return
+        val currentCell = state.board[r][c]
+        if (currentCell.isGiven) return
 
         if (state.isNotesMode) {
+            // Toggle note
             val newNotes = if (currentCell.notes.contains(digit)) {
                 currentCell.notes - digit
             } else {
                 currentCell.notes + digit
             }
+            updateCell(r, c) { it.copy(notes = newNotes, value = 0, isError = false) }
+            return
+        }
 
-            val updatedBoard = state.board.mapIndexed { r, rList ->
-                rList.mapIndexed { c, cell ->
-                    if (r == row && c == col) cell.copy(notes = newNotes, value = 0) else cell
-                }
-            }
+        // Normal number input
+        saveUndoSnapshot()
 
-            undoStack.add(
-                GameMove(
-                    row = row,
-                    col = col,
-                    oldValue = currentCell.value,
-                    newValue = 0,
-                    oldNotes = currentCell.notes,
-                    newNotes = newNotes
-                )
-            )
+        // Move validation against current board & solution
+        val currentMatrix = Array(9) { rowIdx -> IntArray(9) { colIdx -> state.board[rowIdx][colIdx].value } }
+        val valResult = SudokuEngine.validateMove(currentMatrix, state.solution, r, c, digit)
 
+        if (!valResult.isCorrectAgainstSolution) {
+            // Mistake
+            val newMistakes = state.mistakes + 1
+            val isOver = newMistakes >= state.maxMistakes
+            updateCell(r, c) { it.copy(value = digit, isError = true, notes = emptySet()) }
             _uiState.update {
-                it.copy(board = updatedBoard, canUndo = true)
+                it.copy(
+                    mistakes = newMistakes,
+                    isGameOver = isOver,
+                    feedbackMessage = if (isOver) "Game Over! Too many mistakes." else "Incorrect placement! ($newMistakes/${state.maxMistakes})"
+                )
             }
-        } else {
-            val isCorrect = solutionBoard[row][col] == digit
-            val newMistakes = if (!isCorrect) state.mistakes + 1 else state.mistakes
-
-            val updatedBoard = state.board.mapIndexed { r, rList ->
-                rList.mapIndexed { c, cell ->
-                    if (r == row && c == col) {
-                        cell.copy(
-                            value = digit,
-                            notes = emptySet(),
-                            isError = !isCorrect,
-                            isHinted = false
-                        )
-                    } else if (isCorrect && (r == row || c == col || ((r / 3 == row / 3) && (c / 3 == col / 3)))) {
-                        cell.copy(notes = cell.notes - digit)
-                    } else {
-                        cell
+            if (isOver) {
+                viewModelScope.launch {
+                    try {
+                        repository.recordGameFinished(state.difficulty.name, state.timerSeconds, newMistakes, isWon = false)
+                        repository.clearActiveSession()
+                    } catch (_: Exception) {
+                        // Logged in repository
                     }
                 }
             }
-
-            undoStack.add(
-                GameMove(
-                    row = row,
-                    col = col,
-                    oldValue = currentCell.value,
-                    newValue = digit,
-                    oldNotes = currentCell.notes,
-                    newNotes = emptySet()
-                )
-            )
-
-            val counts = calculateNumberCounts(updatedBoard)
-            val isWon = isBoardComplete(updatedBoard)
-
-            _uiState.update {
-                it.copy(
-                    board = updatedBoard,
-                    mistakes = newMistakes,
-                    isGameWon = isWon,
-                    canUndo = true,
-                    numberCounts = counts
-                )
-            }
-
-            if (isWon) {
-                stopTimer()
-                handleVictory(newMistakes)
-            }
-        }
-    }
-
-    fun eraseSelectedCell() {
-        val state = _uiState.value
-        if (state.isPaused) return
-        val (row, col) = state.selectedCell ?: return
-        val currentCell = state.board[row][col]
-
-        if (currentCell.isGiven || (currentCell.value == 0 && currentCell.notes.isEmpty())) return
-
-        val updatedBoard = state.board.mapIndexed { r, rList ->
-            rList.mapIndexed { c, cell ->
-                if (r == row && c == col) {
-                    cell.copy(value = 0, notes = emptySet(), isError = false, isHinted = false)
-                } else cell
-            }
+            return
         }
 
-        undoStack.add(
-            GameMove(
-                row = row,
-                col = col,
-                oldValue = currentCell.value,
-                newValue = 0,
-                oldNotes = currentCell.notes,
-                newNotes = emptySet()
-            )
-        )
+        // Correct digit
+        val updatedBoard = updateCellAndGetBoard(r, c) {
+            it.copy(value = digit, isError = false, notes = emptySet())
+        }
+        // Remove this digit from notes in same row, column, and 3x3 box
+        val cleanedBoard = cleanNotes(updatedBoard, r, c, digit)
+        val remaining = calculateRemainingCounts(cleanedBoard)
 
+        // Check if game won
+        val isWon = isBoardFullySolved(cleanedBoard, state.solution)
         _uiState.update {
             it.copy(
-                board = updatedBoard,
-                canUndo = true,
-                numberCounts = calculateNumberCounts(updatedBoard)
-            )
-        }
-    }
-
-    fun undo() {
-        if (undoStack.isEmpty() || _uiState.value.isPaused) return
-        val lastMove = undoStack.removeAt(undoStack.lastIndex)
-
-        val updatedBoard = _uiState.value.board.mapIndexed { r, rList ->
-            rList.mapIndexed { c, cell ->
-                if (r == lastMove.row && c == lastMove.col) {
-                    val isCorrect = lastMove.oldValue == 0 || solutionBoard[r][c] == lastMove.oldValue
-                    cell.copy(
-                        value = lastMove.oldValue,
-                        notes = lastMove.oldNotes,
-                        isError = !isCorrect,
-                        isHinted = false
-                    )
-                } else cell
-            }
-        }
-
-        _uiState.update {
-            it.copy(
-                board = updatedBoard,
-                canUndo = undoStack.isNotEmpty(),
-                numberCounts = calculateNumberCounts(updatedBoard)
-            )
-        }
-    }
-
-    fun requestHint() {
-        val state = _uiState.value
-        if (state.isPaused) return
-        val currentBoardArray = Array(9) { r ->
-            IntArray(9) { c -> state.board[r][c].value }
-        }
-
-        val hint = SudokuEngine.findSmartHint(currentBoardArray, solutionBoard)
-        if (hint != null) {
-            val updatedBoard = state.board.mapIndexed { r, rList ->
-                rList.mapIndexed { c, cell ->
-                    if (r == hint.row && c == hint.col) {
-                        cell.copy(isHinted = true)
-                    } else cell
-                }
-            }
-
-            _uiState.update {
-                it.copy(
-                    board = updatedBoard,
-                    selectedCell = hint.row to hint.col,
-                    activeHint = hint,
-                    hintsUsed = it.hintsUsed + 1
-                )
-            }
-        }
-    }
-
-    fun applyHint(row: Int, col: Int, targetVal: Int) {
-        val state = _uiState.value
-        val updatedBoard = state.board.mapIndexed { r, rList ->
-            rList.mapIndexed { c, cell ->
-                if (r == row && c == col) {
-                    cell.copy(
-                        value = targetVal,
-                        notes = emptySet(),
-                        isError = false,
-                        isHinted = false
-                    )
-                } else if (r == row || c == col || ((r / 3 == row / 3) && (c / 3 == col / 3))) {
-                    cell.copy(notes = cell.notes - targetVal)
-                } else {
-                    cell
-                }
-            }
-        }
-
-        val counts = calculateNumberCounts(updatedBoard)
-        val isWon = isBoardComplete(updatedBoard)
-
-        _uiState.update {
-            it.copy(
-                board = updatedBoard,
-                activeHint = null,
+                board = cleanedBoard,
+                remainingCounts = remaining,
                 isGameWon = isWon,
-                numberCounts = counts
+                feedbackMessage = if (isWon) "Victory! Puzzle Solved!" else null
             )
         }
 
         if (isWon) {
-            stopTimer()
-            handleVictory(state.mistakes)
+            handleVictory()
+        } else {
+            persistCurrentSession()
         }
     }
 
-    fun dismissHint() {
-        _uiState.update { it.copy(activeHint = null) }
-    }
-
-    fun dismissVictoryDialog() {
-        _uiState.update { it.copy(isGameWon = false, newlyUnlockedStickers = emptyList()) }
-    }
-
-    private fun handleVictory(mistakes: Int) {
-        val state = _uiState.value
+    private fun handleVictory() {
+        val s = _uiState.value
         viewModelScope.launch {
-            val newlyUnlocked = repository.recordGameWin(
-                difficulty = state.difficulty,
-                elapsedSeconds = state.elapsedSeconds,
-                mistakes = mistakes,
-                hintsUsed = state.hintsUsed,
-                isDaily = state.isDaily,
-                todayDateString = state.dailyDate,
-                playerName = "Obsidian Solver"
-            )
-
-            repository.clearActiveGame()
-
-            _uiState.update {
-                it.copy(
-                    isGameWon = true,
-                    newlyUnlockedStickers = newlyUnlocked
-                )
+            try {
+                repository.recordGameFinished(s.difficulty.name, s.timerSeconds, s.mistakes, isWon = true)
+                if (s.isDaily) {
+                    repository.completeDailyChallenge(
+                        dateString = repository.getTodayDateString(),
+                        difficulty = s.difficulty.name,
+                        timeSeconds = s.timerSeconds,
+                        mistakes = s.mistakes,
+                        stars = s.difficulty.stars
+                    )
+                }
+                repository.clearActiveSession()
+            } catch (_: Exception) {
+                // Logged in repository
             }
         }
     }
 
-    private fun isBoardComplete(board: List<List<Cell>>): Boolean {
+    fun onErase() {
+        val state = _uiState.value
+        val r = state.selectedRow ?: return
+        val c = state.selectedCol ?: return
+        if (state.isPaused || state.isGameOver || state.isGameWon) return
+
+        val cell = state.board[r][c]
+        if (cell.isGiven) return
+
+        saveUndoSnapshot()
+        val updated = updateCellAndGetBoard(r, c) {
+            it.copy(value = 0, isError = false, notes = emptySet())
+        }
+        _uiState.update {
+            it.copy(
+                board = updated,
+                remainingCounts = calculateRemainingCounts(updated)
+            )
+        }
+        persistCurrentSession()
+    }
+
+    fun onNotesToggle() {
+        _uiState.update { it.copy(isNotesMode = !it.isNotesMode) }
+    }
+
+    fun onHint() {
+        val state = _uiState.value
+        if (state.isPaused || state.isGameOver || state.isGameWon) return
+
+        val currentMatrix = Array(9) { r -> IntArray(9) { c -> state.board[r][c].value } }
+        val hint = SudokuEngine.findHint(currentMatrix, state.solution) ?: return
+
+        saveUndoSnapshot()
+        val updatedBoard = updateCellAndGetBoard(hint.row, hint.col) {
+            it.copy(
+                value = hint.value,
+                isHint = true,
+                isError = false,
+                notes = emptySet()
+            )
+        }
+        val cleaned = cleanNotes(updatedBoard, hint.row, hint.col, hint.value)
+        val remaining = calculateRemainingCounts(cleaned)
+        val isWon = isBoardFullySolved(cleaned, state.solution)
+
+        _uiState.update {
+            it.copy(
+                board = cleaned,
+                selectedRow = hint.row,
+                selectedCol = hint.col,
+                remainingCounts = remaining,
+                isGameWon = isWon,
+                feedbackMessage = "Hint placed at (${hint.row + 1}, ${hint.col + 1})"
+            )
+        }
+
+        if (isWon) {
+            handleVictory()
+        } else {
+            persistCurrentSession()
+        }
+    }
+
+    fun onUndo() {
+        if (undoStack.isEmpty()) return
+        val snapshot = undoStack.removeAt(undoStack.lastIndex)
+        _uiState.update {
+            it.copy(
+                board = snapshot.board,
+                mistakes = snapshot.mistakes,
+                remainingCounts = calculateRemainingCounts(snapshot.board),
+                feedbackMessage = "Move undone"
+            )
+        }
+        persistCurrentSession()
+    }
+
+    fun onTogglePause() {
+        val newPaused = !_uiState.value.isPaused
+        _uiState.update { it.copy(isPaused = newPaused) }
+        persistCurrentSession()
+    }
+
+    fun resumeGame() {
+        _uiState.update { it.copy(isPaused = false) }
+        persistCurrentSession()
+    }
+
+    fun resetBoard() {
+        val s = _uiState.value
+        val resetBoard = s.board.map { row ->
+            row.map { cell ->
+                if (cell.isGiven) cell
+                else cell.copy(value = 0, isError = false, isHint = false, notes = emptySet())
+            }
+        }
+        undoStack.clear()
+        _uiState.update {
+            it.copy(
+                board = resetBoard,
+                mistakes = 0,
+                isGameOver = false,
+                isGameWon = false,
+                remainingCounts = calculateRemainingCounts(resetBoard),
+                feedbackMessage = "Board reset to initial clues"
+            )
+        }
+        persistCurrentSession()
+    }
+
+    val canUndo: Boolean
+        get() = undoStack.isNotEmpty()
+
+    private fun saveUndoSnapshot() {
+        val s = _uiState.value
+        undoStack.add(BoardSnapshot(board = s.board, mistakes = s.mistakes))
+        if (undoStack.size > 20) {
+            undoStack.removeAt(0)
+        }
+    }
+
+    private fun updateCell(r: Int, c: Int, transform: (Cell) -> Cell) {
+        val newBoard = updateCellAndGetBoard(r, c, transform)
+        _uiState.update { it.copy(board = newBoard) }
+    }
+
+    private fun updateCellAndGetBoard(r: Int, c: Int, transform: (Cell) -> Cell): List<List<Cell>> {
+        return _uiState.value.board.mapIndexed { rowIdx, row ->
+            if (rowIdx == r) {
+                row.mapIndexed { colIdx, cell ->
+                    if (colIdx == c) transform(cell) else cell
+                }
+            } else row
+        }
+    }
+
+    private fun cleanNotes(board: List<List<Cell>>, row: Int, col: Int, digit: Int): List<List<Cell>> {
+        val boxR = (row / 3) * 3
+        val boxC = (col / 3) * 3
+        return board.mapIndexed { r, rowList ->
+            rowList.mapIndexed { c, cell ->
+                if (r == row || c == col || (r in boxR until boxR + 3 && c in boxC until boxC + 3)) {
+                    if (cell.notes.contains(digit)) {
+                        cell.copy(notes = cell.notes - digit)
+                    } else cell
+                } else cell
+            }
+        }
+    }
+
+    private fun calculateRemainingCounts(board: List<List<Cell>>): Map<Int, Int> {
+        val counts = mutableMapOf<Int, Int>()
+        for (i in 1..9) counts[i] = 9
+        for (row in board) {
+            for (cell in row) {
+                if (cell.value in 1..9 && !cell.isError) {
+                    val cur = counts[cell.value] ?: 9
+                    counts[cell.value] = (cur - 1).coerceAtLeast(0)
+                }
+            }
+        }
+        return counts
+    }
+
+    private fun isBoardFullySolved(board: List<List<Cell>>, solution: Array<IntArray>): Boolean {
         for (r in 0 until 9) {
             for (c in 0 until 9) {
                 val cell = board[r][c]
-                if (cell.value == 0 || cell.value != solutionBoard[r][c]) {
+                if (cell.value == 0 || cell.isError || cell.value != solution[r][c]) {
                     return false
                 }
             }
@@ -459,88 +451,71 @@ class SudokuViewModel(
         return true
     }
 
-    private fun calculateNumberCounts(board: List<List<Cell>>): Map<Int, Int> {
-        val counts = mutableMapOf<Int, Int>()
-        for (i in 1..9) counts[i] = 9
-        for (r in 0 until 9) {
-            for (c in 0 until 9) {
-                val v = board[r][c].value
-                if (v in 1..9) {
-                    counts[v] = (counts[v] ?: 9) - 1
-                }
-            }
-        }
-        return counts
+    private fun serializeBoard(board: List<List<Cell>>): String {
+        return board.flatten().joinToString(",") { "${it.value}:${if (it.isGiven) 1 else 0}:${if (it.isError) 1 else 0}" }
     }
 
-    private fun saveSessionToDatabase() {
-        val state = _uiState.value
-        if (state.board.isEmpty() || state.isGameWon) return
+    private fun serializeIntMatrix(matrix: Array<IntArray>): String {
+        return matrix.flatMap { it.asIterable() }.joinToString(",")
+    }
 
-        val initDigits = StringBuilder()
-        val currDigits = StringBuilder()
-        val solDigits = StringBuilder()
+    private fun serializeNotes(board: List<List<Cell>>): String {
+        return board.flatten().joinToString(";") { it.notes.joinToString(",") }
+    }
 
-        for (r in 0 until 9) {
-            for (c in 0 until 9) {
-                initDigits.append(initialBoard[r][c])
-                currDigits.append(state.board[r][c].value)
-                solDigits.append(solutionBoard[r][c])
+    private fun restoreSession(session: GameSessionEntity) {
+        try {
+            val cellItems = session.boardData.split(",")
+            val solutionDigits = session.solutionData.split(",").map { it.toInt() }
+            val noteItems = session.notesData.split(";")
+
+            val solMatrix = Array(9) { r ->
+                IntArray(9) { c ->
+                    solutionDigits[r * 9 + c]
+                }
             }
-        }
 
-        viewModelScope.launch {
-            repository.saveActiveGame(
-                GameRecordEntity(
-                    difficulty = state.difficulty.name,
-                    isDaily = state.isDaily,
-                    dailyDate = state.dailyDate,
-                    initialBoard = initDigits.toString(),
-                    currentBoard = currDigits.toString(),
-                    solutionBoard = solDigits.toString(),
-                    notesBoard = "",
-                    elapsedSeconds = state.elapsedSeconds,
-                    isPaused = state.isPaused,
-                    mistakes = state.mistakes,
-                    hintsUsed = state.hintsUsed,
-                    isCompleted = false
+            val restoredBoard = List(9) { r ->
+                List(9) { c ->
+                    val idx = r * 9 + c
+                    val parts = cellItems[idx].split(":")
+                    val v = parts[0].toInt()
+                    val isGiven = parts.getOrNull(1) == "1"
+                    val isError = parts.getOrNull(2) == "1"
+                    val notesSet = noteItems.getOrNull(idx)
+                        ?.split(",")
+                        ?.filter { it.isNotEmpty() }
+                        ?.mapNotNull { it.toIntOrNull() }
+                        ?.toSet() ?: emptySet()
+
+                    Cell(
+                        row = r,
+                        col = c,
+                        value = v,
+                        isGiven = isGiven,
+                        isError = isError,
+                        notes = notesSet
+                    )
+                }
+            }
+
+            val diff = Difficulty.fromName(session.difficulty)
+            _uiState.update {
+                it.copy(
+                    board = restoredBoard,
+                    solution = solMatrix,
+                    difficulty = diff,
+                    isDaily = session.isDaily,
+                    timerSeconds = session.timerSeconds,
+                    mistakes = session.mistakes,
+                    maxMistakes = diff.maxMistakes,
+                    isPaused = session.isPaused,
+                    remainingCounts = calculateRemainingCounts(restoredBoard),
+                    feedbackMessage = "Game resumed"
                 )
-            )
-        }
-    }
-
-    private fun startTimer() {
-        timerJob?.cancel()
-        periodicSaveJob?.cancel()
-
-        timerJob = viewModelScope.launch {
-            while (isActive) {
-                delay(1000)
-                if (!_uiState.value.isPaused && !_uiState.value.isGameWon) {
-                    _uiState.update { it.copy(elapsedSeconds = it.elapsedSeconds + 1) }
-                }
             }
+        } catch (_: Exception) {
+            startNewGame(Difficulty.EASY, isDaily = false)
         }
-
-        // Periodically persist timer & game session to database every 5 seconds
-        periodicSaveJob = viewModelScope.launch {
-            while (isActive) {
-                delay(5000)
-                if (!_uiState.value.isGameWon) {
-                    saveSessionToDatabase()
-                }
-            }
-        }
-    }
-
-    private fun stopTimer() {
-        timerJob?.cancel()
-        periodicSaveJob?.cancel()
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        stopTimer()
-        saveSessionToDatabase()
     }
 }

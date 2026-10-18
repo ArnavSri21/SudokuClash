@@ -1,0 +1,256 @@
+{
+  "entities": {
+    "GameSession": {
+      "title": "GameSession",
+      "description": "Active Sudoku game session state for a signed-in user.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "UID of the authenticated owner."
+        },
+        "difficulty": {
+          "type": "string",
+          "description": "Difficulty level name (EASY, MEDIUM, HARD, EXPERT, DAILY)."
+        },
+        "timerSeconds": {
+          "type": "integer",
+          "description": "Elapsed game time in seconds."
+        },
+        "mistakes": {
+          "type": "integer",
+          "description": "Number of mistakes made in the current session."
+        },
+        "isPaused": {
+          "type": "boolean",
+          "description": "Whether the game timer is currently paused."
+        },
+        "isDaily": {
+          "type": "boolean",
+          "description": "Whether this session is a daily challenge."
+        },
+        "boardData": {
+          "type": "string",
+          "description": "Serialized 9x9 board cell values and flags."
+        },
+        "solutionData": {
+          "type": "string",
+          "description": "Serialized 9x9 solution matrix."
+        },
+        "notesData": {
+          "type": "string",
+          "description": "Serialized pencil mark notes for each cell."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when session was created (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when session was last updated (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "difficulty",
+        "timerSeconds",
+        "mistakes",
+        "isPaused",
+        "isDaily",
+        "boardData",
+        "solutionData",
+        "notesData",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "DailyChallenge": {
+      "title": "DailyChallenge",
+      "description": "Completed daily Sudoku challenge record for a user.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "UID of the authenticated owner."
+        },
+        "dateString": {
+          "type": "string",
+          "description": "ISO date string (yyyy-MM-dd)."
+        },
+        "difficulty": {
+          "type": "string",
+          "description": "Difficulty name."
+        },
+        "completed": {
+          "type": "boolean",
+          "description": "Whether the daily challenge was completed."
+        },
+        "timeSpentSeconds": {
+          "type": "integer",
+          "description": "Duration taken to complete the challenge in seconds."
+        },
+        "mistakes": {
+          "type": "integer",
+          "description": "Mistakes made during the challenge."
+        },
+        "starsAwarded": {
+          "type": "integer",
+          "description": "Stars earned (0 to 5)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when record was created (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when record was updated (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "dateString",
+        "difficulty",
+        "completed",
+        "timeSpentSeconds",
+        "mistakes",
+        "starsAwarded",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Sticker": {
+      "title": "Sticker",
+      "description": "Achievement sticker badge state for a user.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "UID of the authenticated owner."
+        },
+        "title": {
+          "type": "string",
+          "description": "Display title of the sticker."
+        },
+        "description": {
+          "type": "string",
+          "description": "How the sticker is unlocked."
+        },
+        "iconName": {
+          "type": "string",
+          "description": "Identifier for the sticker icon."
+        },
+        "category": {
+          "type": "string",
+          "description": "Achievement category."
+        },
+        "unlocked": {
+          "type": "boolean",
+          "description": "Whether the user has unlocked this sticker."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when sticker entry was initialized (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when sticker was updated (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "title",
+        "description",
+        "iconName",
+        "category",
+        "unlocked",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "GameStats": {
+      "title": "GameStats",
+      "description": "Aggregated Sudoku statistics per difficulty for a user.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "UID of the authenticated owner."
+        },
+        "difficulty": {
+          "type": "string",
+          "description": "Difficulty key (EASY, MEDIUM, HARD, EXPERT, DAILY)."
+        },
+        "gamesPlayed": {
+          "type": "integer",
+          "description": "Total games played at this difficulty."
+        },
+        "gamesWon": {
+          "type": "integer",
+          "description": "Total games won at this difficulty."
+        },
+        "bestTimeSeconds": {
+          "type": "integer",
+          "description": "Fastest win time in seconds."
+        },
+        "totalTimeSeconds": {
+          "type": "integer",
+          "description": "Cumulative play time in seconds."
+        },
+        "winStreak": {
+          "type": "integer",
+          "description": "Current consecutive win streak."
+        },
+        "perfectGames": {
+          "type": "integer",
+          "description": "Games won with zero mistakes."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when stats record was created (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when stats record was updated (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "difficulty",
+        "gamesPlayed",
+        "gamesWon",
+        "bestTimeSeconds",
+        "totalTimeSeconds",
+        "winStreak",
+        "perfectGames",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/sessions/{sessionId}": {
+      "schema": "GameSession",
+      "description": "Stores active Sudoku game session for the user."
+    },
+    "/users/{userId}/daily_challenges/{dateString}": {
+      "schema": "DailyChallenge",
+      "description": "Stores daily challenge completion records by date for the user."
+    },
+    "/users/{userId}/stickers/{stickerId}": {
+      "schema": "Sticker",
+      "description": "Stores achievement stickers and unlock status for the user."
+    },
+    "/users/{userId}/game_stats/{difficulty}": {
+      "schema": "GameStats",
+      "description": "Stores per-difficulty game statistics for the user."
+    }
+  }
+}

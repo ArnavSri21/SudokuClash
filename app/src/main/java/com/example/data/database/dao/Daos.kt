@@ -13,62 +13,50 @@ import com.example.data.database.entity.StreakRecordEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
-interface GameDao {
-    @Query("SELECT * FROM games WHERE isCompleted = 0 ORDER BY id DESC LIMIT 1")
+interface GameRecordDao {
+    @Query("SELECT * FROM active_games WHERE id = 1 LIMIT 1")
     fun getActiveGame(): Flow<GameRecordEntity?>
 
-    @Query("SELECT * FROM games WHERE isCompleted = 0 ORDER BY id DESC LIMIT 1")
+    @Query("SELECT * FROM active_games WHERE id = 1 LIMIT 1")
     suspend fun getActiveGameSync(): GameRecordEntity?
 
-    @Query("SELECT * FROM games WHERE isDaily = 1 AND dailyDate = :date LIMIT 1")
-    suspend fun getDailyGame(date: String): GameRecordEntity?
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertGame(game: GameRecordEntity): Long
+    suspend fun insertOrUpdateGame(game: GameRecordEntity)
 
-    @Update
-    suspend fun updateGame(game: GameRecordEntity)
-
-    @Query("UPDATE games SET elapsedSeconds = :seconds, isPaused = :isPaused WHERE isCompleted = 0")
-    suspend fun updateTimerState(seconds: Long, isPaused: Boolean)
-
-    @Query("DELETE FROM games WHERE isCompleted = 0")
-    suspend fun clearActiveGames()
+    @Query("DELETE FROM active_games WHERE id = 1")
+    suspend fun clearActiveGame()
 }
 
 @Dao
 interface StreakDao {
-    @Query("SELECT * FROM streaks WHERE id = 1")
-    fun getStreak(): Flow<StreakRecordEntity?>
+    @Query("SELECT * FROM streak_record WHERE id = 1 LIMIT 1")
+    fun getStreakRecord(): Flow<StreakRecordEntity?>
 
-    @Query("SELECT * FROM streaks WHERE id = 1")
-    suspend fun getStreakSync(): StreakRecordEntity?
+    @Query("SELECT * FROM streak_record WHERE id = 1 LIMIT 1")
+    suspend fun getStreakRecordSync(): StreakRecordEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertOrUpdateStreak(streak: StreakRecordEntity)
+    suspend fun insertOrUpdateStreak(record: StreakRecordEntity)
 }
 
 @Dao
 interface StickerDao {
-    @Query("SELECT * FROM stickers ORDER BY requirementThreshold ASC")
+    @Query("SELECT * FROM stickers ORDER BY rarity DESC, id ASC")
     fun getAllStickers(): Flow<List<StickerEntity>>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertStickers(stickers: List<StickerEntity>)
 
-    @Query("UPDATE stickers SET isFeatured = 0")
-    suspend fun clearFeatured()
+    @Query("UPDATE stickers SET isUnlocked = 1, unlockedAt = :timestamp WHERE id = :stickerId")
+    suspend fun unlockSticker(stickerId: String, timestamp: Long)
 
-    @Query("UPDATE stickers SET isFeatured = 1 WHERE id = :stickerId")
-    suspend fun setFeatured(stickerId: String)
-
-    @Query("UPDATE stickers SET isUnlocked = 1, unlockedDate = :date WHERE id = :stickerId AND isUnlocked = 0")
-    suspend fun unlockSticker(stickerId: String, date: String): Int
+    @Query("SELECT * FROM stickers WHERE isUnlocked = 1")
+    suspend fun getUnlockedStickersSync(): List<StickerEntity>
 }
 
 @Dao
 interface FriendDao {
-    @Query("SELECT * FROM friends ORDER BY currentStreak DESC")
+    @Query("SELECT * FROM friends ORDER BY currentStreak DESC, name ASC")
     fun getAllFriends(): Flow<List<FriendEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -83,9 +71,9 @@ interface FriendDao {
 
 @Dao
 interface LeaderboardDao {
-    @Query("SELECT * FROM daily_leaderboard WHERE dateString = :date ORDER BY rank ASC")
-    fun getDailyLeaderboard(date: String): Flow<List<DailyLeaderboardEntity>>
+    @Query("SELECT * FROM daily_leaderboard WHERE dateIso = :date ORDER BY elapsedSeconds ASC, mistakes ASC")
+    fun getLeaderboardForDate(date: String): Flow<List<DailyLeaderboardEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertEntries(entries: List<DailyLeaderboardEntity>)
+    suspend fun insertLeaderboardEntries(entries: List<DailyLeaderboardEntity>)
 }

@@ -3,79 +3,66 @@ package com.example.data.database.entity
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "games")
+@Entity(tableName = "active_games")
 data class GameRecordEntity(
-    @PrimaryKey(autoGenerate = true)
-    val id: Long = 0,
+    @PrimaryKey val id: Int = 1,
     val difficulty: String,
     val isDaily: Boolean,
-    val dailyDate: String?,
-    val initialBoard: String, // 81 digits
-    val currentBoard: String, // 81 digits
-    val solutionBoard: String, // 81 digits
-    val notesBoard: String, // Serialized cell notes
-    val elapsedSeconds: Long, // Persistent session timer duration
-    val isPaused: Boolean = false,
+    val dailyDate: String,
+    val initialBoard: String,
+    val currentBoard: String,
+    val solutionBoard: String,
+    val notesBoard: String,
+    val elapsedSeconds: Long,
+    val isPaused: Boolean,
     val mistakes: Int,
     val hintsUsed: Int,
     val isCompleted: Boolean,
-    val completedTimestamp: Long? = null
+    val timestamp: Long = System.currentTimeMillis()
 )
 
-@Entity(tableName = "streaks")
+@Entity(tableName = "streak_record")
 data class StreakRecordEntity(
-    @PrimaryKey
-    val id: Int = 1,
+    @PrimaryKey val id: Int = 1,
     val currentStreak: Int = 0,
-    val bestStreak: Int = 0,
-    val lastPlayedDate: String = "",
+    val maxStreak: Int = 0,
+    val lastCompletedDate: String = "",
+    val completedDailyDates: String = "",
     val totalGamesWon: Int = 0,
-    val perfectGamesWon: Int = 0,
-    val dailyChallengesCompleted: Int = 0,
-    val completedDailyDates: String = ""
+    val totalTimePlayedSeconds: Long = 0L,
+    val featuredStickerId: String = "novice_spark"
 )
 
 @Entity(tableName = "stickers")
 data class StickerEntity(
-    @PrimaryKey
-    val id: String,
-    val title: String,
-    val subtitle: String,
-    val lore: String,
-    val iconType: String,
-    val accentColorHex: String,
-    val requirementType: String,
-    val requirementThreshold: Int,
+    @PrimaryKey val id: String,
+    val name: String,
+    val description: String,
+    val iconName: String,
+    val rarity: String, // COMMON, RARE, EPIC, LEGENDARY
+    val unlockCriteria: String,
     val isUnlocked: Boolean = false,
-    val unlockedDate: String? = null,
-    val isFeatured: Boolean = false
+    val unlockedAt: Long? = null
 )
 
 @Entity(tableName = "friends")
 data class FriendEntity(
-    @PrimaryKey
-    val id: String,
+    @PrimaryKey val id: String,
     val name: String,
-    val friendCode: String,
-    val avatarColorHex: String,
+    val avatarColor: Long,
     val currentStreak: Int,
-    val dailyTimeSeconds: Long? = null,
-    val featuredStickerId: String = "spark_1",
-    val kudosReceived: Int = 0,
-    val kudosSentToday: Boolean = false,
-    val statusMessage: String = "Solving the daily grid!"
+    val friendCode: String,
+    val lastActiveIso: String,
+    val kudosCount: Int = 0
 )
 
 @Entity(tableName = "daily_leaderboard")
 data class DailyLeaderboardEntity(
-    @PrimaryKey(autoGenerate = true)
-    val id: Long = 0,
-    val dateString: String,
-    val rank: Int,
+    @PrimaryKey val id: String,
+    val dateIso: String,
     val playerName: String,
-    val isCurrentUser: Boolean = false,
-    val timeSeconds: Long,
+    val elapsedSeconds: Long,
     val mistakes: Int,
-    val accuracyPercent: Int,
-    val featuredStickerId: String
+    val rank: Int,
+    val isUser: Boolean = false
 )

@@ -5,7 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.example.data.database.dao.FriendDao
-import com.example.data.database.dao.GameDao
+import com.example.data.database.dao.GameRecordDao
 import com.example.data.database.dao.LeaderboardDao
 import com.example.data.database.dao.StickerDao
 import com.example.data.database.dao.StreakDao
@@ -27,7 +27,7 @@ import com.example.data.database.entity.StreakRecordEntity
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
-    abstract fun gameDao(): GameDao
+    abstract fun gameDao(): GameRecordDao
     abstract fun streakDao(): StreakDao
     abstract fun stickerDao(): StickerDao
     abstract fun friendDao(): FriendDao
@@ -43,7 +43,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "obsidian_sudoku.db"
-                ).build()
+                ).fallbackToDestructiveMigration().build()
                 INSTANCE = instance
                 instance
             }

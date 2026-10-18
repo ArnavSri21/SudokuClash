@@ -1,97 +1,71 @@
 package com.example.ui.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.data.database.entity.FriendEntity
-import com.example.data.database.entity.StreakRecordEntity
+import com.example.data.model.GameStatsEntity
 import com.example.data.repository.SudokuRepository
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
+
+data class LeaderboardEntry(
+    val rank: Int,
+    val name: String,
+    val title: String,
+    val score: Int,
+    val bestTime: String,
+    val isCurrentUser: Boolean = false
+)
 
 data class SocialUiState(
-    val myName: String = "Obsidian Solver",
-    val myFriendCode: String = "OBSIDIAN-9428",
-    val showAddFriendDialog: Boolean = false,
-    val addFriendCodeInput: String = "",
-    val addFriendNameInput: String = "",
-    val feedbackMessage: String? = null
+    val statsList: List<GameStatsEntity> = emptyList(),
+    val leaderboard: List<LeaderboardEntry> = emptyList(),
+    val totalGamesWon: Int = 0,
+    val totalTimeFormatted: String = "00:00",
+    val errorMessage: String? = null
 )
 
 class SocialViewModel(
-    private val repository: SudokuRepository
+    repository: SudokuRepository
 ) : ViewModel() {
 
-    val friends: StateFlow<List<FriendEntity>> = repository.friends
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+    val uiState: StateFlow<SocialUiState> = repository.allStats
+        .map { stats ->
+            val totalWon = stats.sumOf { it.gamesWon }
+            val totalSecs = stats.sumOf { it.totalTimeSeconds }
+            val hours = totalSecs / 3600
+            val mins = (totalSecs % 3600) / 60
+            val timeStr = if (hours > 0) "${hours}h ${mins}m" else "${mins}m ${totalSecs % 60}s"
 
-    val streak: StateFlow<StreakRecordEntity?> = repository.streak
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = null
-        )
+            val userScore = totalWon * 150 + stats.sumOf { it.perfectGames } * 200
+            val entries = listOf(
+                LeaderboardEntry(1, "Aetherius", "Grandmaster", 3420, "02:14"),
+                LeaderboardEntry(2, "Vespera", "Void Sovereign", 2890, "02:45"),
+                LeaderboardEntry(3, "You", "Obsidian Solver", userScore, if (totalWon > 0) "Active" else "--:--", isCurrentUser = true),
+                LeaderboardEntry(4, "Kaelen", "Cipher Adept", 2150, "03:12"),
+                LeaderboardEntry(5, "Nyx_99", "Grid Sentinel", 1840, "03:55"),
+                LeaderboardEntry(6, "Solaris", "Pencil Artisan", 1430, "04:10"),
+                LeaderboardEntry(7, "Zephyr", "Rift Seeker", 980, "05:02")
+            ).sortedByDescending { it.score }
+                .mapIndexed { idx, entry -> entry.copy(rank = idx + 1) }
 
-    private val _uiState = MutableStateFlow(SocialUiState())
-    val uiState: StateFlow<SocialUiState> = _uiState.asStateFlow()
-
-    fun openAddFriendDialog() {
-        _uiState.update {
-            it.copy(
-                showAddFriendDialog = true,
-                addFriendCodeInput = "",
-                addFriendNameInput = "",
-                feedbackMessage = null
+            SocialUiState(
+                statsList = stats,
+                leaderboard = entries,
+                totalGamesWon = totalWon,
+                totalTimeFormatted = timeStr
             )
         }
-    }
-
-    fun closeAddFriendDialog() {
-        _uiState.update { it.copy(showAddFriendDialog = false, feedbackMessage = null) }
-    }
-
-    fun onCodeChange(code: String) {
-        _uiState.update { it.copy(addFriendCodeInput = code) }
-    }
-
-    fun onNameChange(name: String) {
-        _uiState.update { it.copy(addFriendNameInput = name) }
-    }
-
-    fun addFriend() {
-        val state = _uiState.value
-        val name = state.addFriendNameInput.trim().ifEmpty { "Contender #${(100..999).random()}" }
-        val code = state.addFriendCodeInput.trim().ifEmpty { "SUDOKU-${(1000..9999).random()}" }
-
-        viewModelScope.launch {
-            repository.addFriend(name, code)
-            _uiState.update {
-                it.copy(
-                    showAddFriendDialog = false,
-                    feedbackMessage = "Added $name to your friends list!"
-                )
-            }
+        .catch { error ->
+            Log.w("SocialViewModel", "Error observing game stats", error)
+            emit(SocialUiState(errorMessage = error.localizedMessage))
         }
-    }
-
-    fun sendKudos(friend: FriendEntity) {
-        viewModelScope.launch {
-            repository.sendKudosToFriend(friend)
-            _uiState.update {
-                it.copy(feedbackMessage = "Sent a streak cheer to ${friend.name}! 🔥")
-            }
-        }
-    }
-
-    fun clearFeedback() {
-        _uiState.update { it.copy(feedbackMessage = null) }
-    }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            SocialUiState()
+        )
 }

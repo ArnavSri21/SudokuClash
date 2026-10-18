@@ -1,49 +1,56 @@
 package com.example.ui.theme
 
+import android.app.Activity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 
-private val ObsidianDarkColorScheme = darkColorScheme(
-    primary = NeonCyan,
+private val DarkColorScheme = darkColorScheme(
+    primary = ObsidianPrimary,
     onPrimary = ObsidianBg,
-    primaryContainer = ObsidianCard,
-    onPrimaryContainer = NeonCyan,
-    secondary = NeonAmber,
+    primaryContainer = ObsidianSurfaceElevated,
+    onPrimaryContainer = ObsidianPrimaryLight,
+    secondary = ObsidianSecondary,
     onSecondary = ObsidianBg,
-    secondaryContainer = ObsidianSurfaceVariant,
-    onSecondaryContainer = NeonAmber,
-    tertiary = NeonPurple,
-    onTertiary = ObsidianBg,
+    secondaryContainer = ObsidianSurfaceElevated,
+    onSecondaryContainer = ObsidianSecondaryLight,
+    tertiary = ObsidianTertiary,
     background = ObsidianBg,
-    onBackground = TextPrimary,
+    onBackground = CellGivenText,
     surface = ObsidianSurface,
-    onSurface = TextPrimary,
-    surfaceVariant = ObsidianSurfaceVariant,
-    onSurfaceVariant = TextSecondary,
+    onSurface = CellGivenText,
+    surfaceVariant = ObsidianCard,
+    onSurfaceVariant = CellNoteText,
     outline = ObsidianBorder,
-    outlineVariant = ObsidianDivider,
-    error = NeonRose,
-    onError = Color.White
+    error = ObsidianError,
+    onError = CellGivenText
 )
 
 @Composable
 fun ObsidianSudokuTheme(
-    darkTheme: Boolean = true,
     content: @Composable () -> Unit
 ) {
+    val colorScheme = DarkColorScheme
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = (view.context as? Activity)?.window
+            if (window != null) {
+                window.statusBarColor = ObsidianBg.toArgb()
+                window.navigationBarColor = ObsidianBg.toArgb()
+                WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
+                WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = false
+            }
+        }
+    }
+
     MaterialTheme(
-        colorScheme = ObsidianDarkColorScheme,
+        colorScheme = colorScheme,
         typography = Typography,
         content = content
     )
-}
-
-// Keep alias if needed
-@Composable
-fun MyApplicationTheme(
-    content: @Composable () -> Unit
-) {
-    ObsidianSudokuTheme(content = content)
 }
