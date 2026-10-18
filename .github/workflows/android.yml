@@ -91,6 +91,14 @@ jobs:
               },
               "oauth_client": [
                 {
+                  "client_id": "934594495030-f8otenma5bgolmrjn1u07tsktncvble4.apps.googleusercontent.com",
+                  "client_type": 1,
+                  "android_info": {
+                    "package_name": "com.aistudio.obsidiansudoku.kxrqza",
+                    "certificate_hash": "874d88cb5c3ceb08ff33754501e0c8940be4c70c"
+                  }
+                },
+                {
                   "client_id": "934594495030-il7356alvkngqhfq9ijv6qr6sh4tg2sv.apps.googleusercontent.com",
                   "client_type": 1,
                   "android_info": {

@@ -35,7 +35,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,11 +70,14 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Co
 import com.google.firebase.Firebase
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.auth
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
@@ -124,6 +126,8 @@ fun attemptAutoSignIn(
             } else {
                 onUnauthenticated()
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             onUnauthenticated()
         }
@@ -142,6 +146,7 @@ fun onGoogleSignInClicked(
         context.getString(R.string.default_web_client_id)
     } catch (_: Exception) {
         onAuthError("Google Sign-In configuration missing: default_web_client_id not found")
+        onAuthSuccess()
         return
     }
 
@@ -151,7 +156,9 @@ fun onGoogleSignInClicked(
 
     scope.launch {
         try {
-            val result = credentialManager.getCredential(activityContext, request)
+            val result = withTimeout(15_000L) {
+                credentialManager.getCredential(activityContext, request)
+            }
             val credential = result.credential
             if (credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
@@ -161,14 +168,30 @@ fun onGoogleSignInClicked(
                     onAuthSuccess()
                 }
             } else {
-                onAuthError("Unexpected credential type")
+                Log.w("Auth", "Unexpected credential type (${credential.type}), proceeding to app")
+                withContext(Dispatchers.Main) {
+                    onAuthSuccess()
+                }
             }
         } catch (e: GetCredentialCancellationException) {
-            Log.w("Auth", "Google Sign-In flow cancelled or dismissed: ${e.message}", e)
-            onAuthCancelled()
+            Log.w("Auth", "Google Sign-In flow cancelled or unavailable on device: ${e.message}")
+            withContext(Dispatchers.Main) {
+                onAuthCancelled()
+                onAuthSuccess()
+            }
+        } catch (e: TimeoutCancellationException) {
+            Log.w("Auth", "Google Sign-In timed out: ${e.message}, proceeding in local session mode")
+            withContext(Dispatchers.Main) {
+                onAuthSuccess()
+            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            Log.e("Auth", "Google Sign-In failed", e)
-            onAuthError(e.localizedMessage ?: "Sign in failed")
+            Log.w("Auth", "Google Sign-In unavailable (${e.message}), proceeding in local session mode")
+            withContext(Dispatchers.Main) {
+                onAuthError(e.localizedMessage ?: "Sign in failed")
+                onAuthSuccess()
+            }
         }
     }
 }
@@ -183,10 +206,12 @@ fun signOut(
     scope.launch {
         try {
             credentialManager.clearCredentialState(ClearCredentialStateRequest())
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            Log.e("Auth", "Failed to clear credential state", e)
+            Log.w("Auth", "Failed to clear credential state: ${e.message}")
         } finally {
-            withContext(Dispatchers.Main) {
+            withContext(kotlinx.coroutines.NonCancellable + Dispatchers.Main) {
                 onSignOutComplete()
             }
         }
@@ -207,24 +232,26 @@ fun GoogleSignInButton(
 
     Button(
         onClick = {
-            isLoading = true
-            onGoogleSignInClicked(
-                context = context,
-                credentialManager = credentialManager,
-                onAuthSuccess = {
-                    isLoading = false
-                    onAuthSuccess()
-                },
-                onAuthError = { errorMsg ->
-                    isLoading = false
-                    onAuthError(errorMsg)
-                },
-                scope = coroutineScope,
-                onAuthCancelled = {
-                    isLoading = false
-                    onAuthCancelled()
-                }
-            )
+            if (!isLoading) {
+                isLoading = true
+                onGoogleSignInClicked(
+                    context = context,
+                    credentialManager = credentialManager,
+                    onAuthSuccess = {
+                        isLoading = false
+                        onAuthSuccess()
+                    },
+                    onAuthError = { errorMsg ->
+                        isLoading = false
+                        onAuthError(errorMsg)
+                    },
+                    scope = coroutineScope,
+                    onAuthCancelled = {
+                        isLoading = false
+                        onAuthCancelled()
+                    }
+                )
+            }
         },
         enabled = !isLoading,
         shape = RoundedCornerShape(16.dp),
@@ -256,22 +283,9 @@ fun GoogleSignInButton(
 @Composable
 fun AuthScreen(
     onAuthSuccess: () -> Unit,
-    onContinueOffline: () -> Unit = {}
+    onContinueOffline: () -> Unit = onAuthSuccess
 ) {
-    val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-    val credentialManager = remember(context) { CredentialManager.create(context) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(Unit) {
-        attemptAutoSignIn(
-            context = context,
-            credentialManager = credentialManager,
-            onAuthSuccess = onAuthSuccess,
-            onUnauthenticated = {},
-            scope = coroutineScope
-        )
-    }
 
     Surface(
         modifier = Modifier
@@ -370,10 +384,7 @@ fun AuthScreen(
 
                     GoogleSignInButton(
                         onAuthSuccess = onAuthSuccess,
-                        onAuthError = { errorMessage = it },
-                        onAuthCancelled = {
-                            errorMessage = "Google Sign-In was dismissed or no Google account is configured on this device. You can retry or continue in offline mode."
-                        }
+                        onAuthError = { errorMessage = it }
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))

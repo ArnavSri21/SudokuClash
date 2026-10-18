@@ -58,20 +58,49 @@ class SudokuViewModel(
     private var timerJob: Job? = null
 
     init {
+        populateInitialBoardSynchronously(Difficulty.EASY)
         viewModelScope.launch {
             try {
-                repository.initDefaultStickers()
                 val session = repository.getActiveSessionOnce()
                 if (session != null && session.boardData.isNotEmpty()) {
                     restoreSession(session)
-                } else {
-                    startNewGame(Difficulty.EASY, isDaily = false)
                 }
             } catch (_: Exception) {
-                startNewGame(Difficulty.EASY, isDaily = false)
+                // Keep initial generated board
+            }
+        }
+        viewModelScope.launch {
+            try {
+                repository.initDefaultStickers()
+            } catch (_: Exception) {
+                // Handled by repository error logger
             }
         }
         startTimerLoop()
+    }
+
+    private fun populateInitialBoardSynchronously(difficulty: Difficulty) {
+        val generated = SudokuEngine.generatePuzzle(difficulty, System.currentTimeMillis())
+        val newBoard = List(9) { r ->
+            List(9) { c ->
+                val v = generated.initialBoard[r][c]
+                Cell(
+                    row = r,
+                    col = c,
+                    value = v,
+                    isGiven = (v != 0),
+                    notes = emptySet()
+                )
+            }
+        }
+        _uiState.value = SudokuUiState(
+            board = newBoard,
+            solution = generated.solution,
+            difficulty = difficulty,
+            maxMistakes = difficulty.maxMistakes,
+            remainingCounts = calculateRemainingCounts(newBoard),
+            feedbackMessage = "${difficulty.displayName} Game Started"
+        )
     }
 
     private fun startTimerLoop() {

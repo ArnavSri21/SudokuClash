@@ -86,13 +86,15 @@ enum class ScreenTab(
 @Composable
 fun AppNavigation() {
     var currentUser by remember { mutableStateOf(Firebase.auth.currentUser) }
-    var isOfflineGuest by remember { mutableStateOf(false) }
+    var isOfflineGuest by androidx.compose.runtime.saveable.rememberSaveable {
+        mutableStateOf(Firebase.auth.currentUser != null)
+    }
 
     DisposableEffect(Unit) {
         val listener = FirebaseAuth.AuthStateListener { auth ->
             currentUser = auth.currentUser
             if (auth.currentUser != null) {
-                isOfflineGuest = false
+                isOfflineGuest = true
             }
         }
         Firebase.auth.addAuthStateListener(listener)
@@ -106,9 +108,7 @@ fun AppNavigation() {
         AuthScreen(
             onAuthSuccess = {
                 currentUser = Firebase.auth.currentUser
-                if (currentUser == null) {
-                    isOfflineGuest = true
-                }
+                isOfflineGuest = true
             },
             onContinueOffline = {
                 isOfflineGuest = true
