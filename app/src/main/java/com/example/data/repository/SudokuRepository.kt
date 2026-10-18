@@ -22,6 +22,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
@@ -43,6 +44,10 @@ class SudokuRepository(
     private val auth
         get() = Firebase.auth
 
+    private fun isLocalOnlySession(targetUserId: String? = null): Boolean {
+        return targetUserId == null && auth.currentUser == null && dao != null
+    }
+
     private fun requireUserId(): String {
         return auth.currentUser?.uid
             ?: throw IllegalStateException("User must be signed in with Google before accessing Firestore.")
@@ -52,89 +57,109 @@ class SudokuRepository(
         return targetUserId ?: auth.currentUser?.uid ?: "unauthenticated"
     }
 
-    fun observeActiveSession(targetUserId: String? = null): Flow<GameSessionEntity?> = callbackFlow {
-        val uid = currentOrTargetUserId(targetUserId)
-        val docRef = db.collection("users").document(uid).collection("sessions").document("active")
-        val registration = docRef.addSnapshotListener { snapshot, error ->
-            if (error != null) {
-                handleFirestoreError(error, OperationType.GET, docRef.path)
-                close(error)
-                return@addSnapshotListener
-            }
-            val entity = if (snapshot != null && snapshot.exists()) {
-                snapshot.toObject(
-                    FirestoreGameSession::class.java,
-                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                )?.toEntity()
-            } else {
-                null
-            }
-            trySend(entity)
+    fun observeActiveSession(targetUserId: String? = null): Flow<GameSessionEntity?> {
+        if (isLocalOnlySession(targetUserId)) {
+            return dao!!.getActiveSession()
         }
-        awaitClose { registration.remove() }
-    }
-
-    fun observeDailyChallenges(targetUserId: String? = null): Flow<List<DailyChallengeEntity>> = callbackFlow {
-        val uid = currentOrTargetUserId(targetUserId)
-        val colRef = db.collection("users").document(uid).collection("daily_challenges")
-        val registration = colRef.whereEqualTo("userId", uid)
-            .addSnapshotListener { snapshot, error ->
+        return callbackFlow {
+            val uid = currentOrTargetUserId(targetUserId)
+            val docRef = db.collection("users").document(uid).collection("sessions").document("active")
+            val registration = docRef.addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    handleFirestoreError(error, OperationType.LIST, colRef.path)
+                    handleFirestoreError(error, OperationType.GET, docRef.path)
                     close(error)
                     return@addSnapshotListener
                 }
-                val list = snapshot?.documents?.mapNotNull { doc ->
-                    doc.toObject(
-                        FirestoreDailyChallenge::class.java,
+                val entity = if (snapshot != null && snapshot.exists()) {
+                    snapshot.toObject(
+                        FirestoreGameSession::class.java,
                         DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
                     )?.toEntity()
-                }?.sortedByDescending { it.dateString } ?: emptyList()
-                trySend(list)
+                } else {
+                    null
+                }
+                trySend(entity)
             }
-        awaitClose { registration.remove() }
+            awaitClose { registration.remove() }
+        }
     }
 
-    fun observeStickers(targetUserId: String? = null): Flow<List<StickerEntity>> = callbackFlow {
-        val uid = currentOrTargetUserId(targetUserId)
-        val colRef = db.collection("users").document(uid).collection("stickers")
-        val registration = colRef.whereEqualTo("userId", uid)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    handleFirestoreError(error, OperationType.LIST, colRef.path)
-                    close(error)
-                    return@addSnapshotListener
+    fun observeDailyChallenges(targetUserId: String? = null): Flow<List<DailyChallengeEntity>> {
+        if (isLocalOnlySession(targetUserId)) {
+            return dao!!.getAllDailyChallenges()
+        }
+        return callbackFlow {
+            val uid = currentOrTargetUserId(targetUserId)
+            val colRef = db.collection("users").document(uid).collection("daily_challenges")
+            val registration = colRef.whereEqualTo("userId", uid)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        handleFirestoreError(error, OperationType.LIST, colRef.path)
+                        close(error)
+                        return@addSnapshotListener
+                    }
+                    val list = snapshot?.documents?.mapNotNull { doc ->
+                        doc.toObject(
+                            FirestoreDailyChallenge::class.java,
+                            DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                        )?.toEntity()
+                    }?.sortedByDescending { it.dateString } ?: emptyList()
+                    trySend(list)
                 }
-                val list = snapshot?.documents?.mapNotNull { doc ->
-                    doc.toObject(
-                        FirestoreSticker::class.java,
-                        DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                    )?.toEntity()
-                } ?: emptyList()
-                trySend(list)
-            }
-        awaitClose { registration.remove() }
+            awaitClose { registration.remove() }
+        }
     }
 
-    fun observeAllStats(targetUserId: String? = null): Flow<List<GameStatsEntity>> = callbackFlow {
-        val uid = currentOrTargetUserId(targetUserId)
-        val colRef = db.collection("users").document(uid).collection("game_stats")
-        val registration = colRef.whereEqualTo("userId", uid)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    handleFirestoreError(error, OperationType.LIST, colRef.path)
-                    close(error)
-                    return@addSnapshotListener
+    fun observeStickers(targetUserId: String? = null): Flow<List<StickerEntity>> {
+        if (isLocalOnlySession(targetUserId)) {
+            return dao!!.getAllStickers()
+        }
+        return callbackFlow {
+            val uid = currentOrTargetUserId(targetUserId)
+            val colRef = db.collection("users").document(uid).collection("stickers")
+            val registration = colRef.whereEqualTo("userId", uid)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        handleFirestoreError(error, OperationType.LIST, colRef.path)
+                        close(error)
+                        return@addSnapshotListener
+                    }
+                    val list = snapshot?.documents?.mapNotNull { doc ->
+                        doc.toObject(
+                            FirestoreSticker::class.java,
+                            DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                        )?.toEntity()
+                    } ?: emptyList()
+                    trySend(list)
                 }
-                val list = snapshot?.documents?.mapNotNull { doc ->
-                    doc.toObject(
-                        FirestoreGameStats::class.java,
-                        DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                    )?.toEntity()
-                } ?: emptyList()
-                trySend(list)
-            }
-        awaitClose { registration.remove() }
+            awaitClose { registration.remove() }
+        }
+    }
+
+    fun observeAllStats(targetUserId: String? = null): Flow<List<GameStatsEntity>> {
+        if (isLocalOnlySession(targetUserId)) {
+            return dao!!.getAllStats()
+        }
+        return callbackFlow {
+            val uid = currentOrTargetUserId(targetUserId)
+            val colRef = db.collection("users").document(uid).collection("game_stats")
+            val registration = colRef.whereEqualTo("userId", uid)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        handleFirestoreError(error, OperationType.LIST, colRef.path)
+                        close(error)
+                        return@addSnapshotListener
+                    }
+                    val list = snapshot?.documents?.mapNotNull { doc ->
+                        doc.toObject(
+                            FirestoreGameStats::class.java,
+                            DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                        )?.toEntity()
+                    } ?: emptyList()
+                    trySend(list)
+                }
+            awaitClose { registration.remove() }
+        }
     }
 
     val activeSession: Flow<GameSessionEntity?>
@@ -153,6 +178,9 @@ class SudokuRepository(
         get() = observeAllStats()
 
     suspend fun getActiveSessionOnce(targetUserId: String? = null): GameSessionEntity? {
+        if (isLocalOnlySession(targetUserId)) {
+            return dao!!.getActiveSession().firstOrNull()
+        }
         val uid = currentOrTargetUserId(targetUserId)
         val docRef = db.collection("users").document(uid).collection("sessions").document("active")
         return try {
@@ -174,8 +202,12 @@ class SudokuRepository(
     }
 
     suspend fun initDefaultStickers() {
-        val uid = requireUserId()
         val defaultList = defaultStickerCatalog()
+        if (isLocalOnlySession()) {
+            dao?.insertStickers(defaultList)
+            return
+        }
+        val uid = requireUserId()
         val colRef = db.collection("users").document(uid).collection("stickers")
         try {
             val existingSnap = colRef.whereEqualTo("userId", uid).get().await()
@@ -215,10 +247,27 @@ class SudokuRepository(
         solutionData: String,
         notesData: String
     ) {
-        val uid = requireUserId()
-        val docRef = db.collection("users").document(uid).collection("sessions").document("active")
         val safeBoard = boardData.ifBlank { "0:0:0" }
         val safeSolution = solutionData.ifBlank { "1" }
+        if (isLocalOnlySession()) {
+            dao?.saveActiveSession(
+                GameSessionEntity(
+                    id = 1,
+                    difficulty = difficulty,
+                    timerSeconds = timerSeconds,
+                    mistakes = mistakes,
+                    isPaused = isPaused,
+                    isDaily = isDaily,
+                    boardData = safeBoard,
+                    solutionData = safeSolution,
+                    notesData = notesData,
+                    lastUpdated = System.currentTimeMillis()
+                )
+            )
+            return
+        }
+        val uid = requireUserId()
+        val docRef = db.collection("users").document(uid).collection("sessions").document("active")
         try {
             val existing = docRef.get().await()
             if (existing.exists()) {
@@ -273,6 +322,10 @@ class SudokuRepository(
     }
 
     suspend fun clearActiveSession() {
+        if (isLocalOnlySession()) {
+            dao?.clearActiveSession()
+            return
+        }
         val uid = requireUserId()
         val docRef = db.collection("users").document(uid).collection("sessions").document("active")
         try {
@@ -292,6 +345,38 @@ class SudokuRepository(
         mistakes: Int,
         isWon: Boolean
     ) {
+        if (isLocalOnlySession()) {
+            val localDao = dao ?: return
+            val existing = localDao.getStats(difficulty) ?: GameStatsEntity(difficulty = difficulty)
+            val newPlayed = existing.gamesPlayed + 1
+            val newWon = if (isWon) existing.gamesWon + 1 else existing.gamesWon
+            val newStreak = if (isWon) existing.winStreak + 1 else 0
+            val newPerfect = if (isWon && mistakes == 0) existing.perfectGames + 1 else existing.perfectGames
+            val newBestTime = if (isWon) {
+                if (existing.bestTimeSeconds == 0L || timeSeconds < existing.bestTimeSeconds) timeSeconds else existing.bestTimeSeconds
+            } else existing.bestTimeSeconds
+            val newTotalTime = existing.totalTimeSeconds + timeSeconds
+
+            localDao.saveStats(
+                existing.copy(
+                    gamesPlayed = newPlayed,
+                    gamesWon = newWon,
+                    bestTimeSeconds = newBestTime,
+                    totalTimeSeconds = newTotalTime,
+                    winStreak = newStreak,
+                    perfectGames = newPerfect
+                )
+            )
+            if (isWon) {
+                localDao.unlockSticker("first_win")
+                if (timeSeconds < 300) localDao.unlockSticker("speed_demon")
+                if (mistakes == 0) localDao.unlockSticker("flawless")
+                if (difficulty == "EXPERT") localDao.unlockSticker("expert_solver")
+                if (newWon >= 10) localDao.unlockSticker("ten_games")
+            }
+            return
+        }
+
         val uid = requireUserId()
         val docRef = db.collection("users").document(uid).collection("game_stats").document(difficulty)
         try {
@@ -388,6 +473,20 @@ class SudokuRepository(
         mistakes: Int,
         stars: Int
     ) {
+        if (isLocalOnlySession()) {
+            dao?.saveDailyChallenge(
+                DailyChallengeEntity(
+                    dateString = dateString,
+                    difficulty = difficulty,
+                    completed = true,
+                    timeSpentSeconds = timeSeconds,
+                    mistakes = mistakes,
+                    starsAwarded = stars,
+                    completedAt = System.currentTimeMillis()
+                )
+            )
+            return
+        }
         val uid = requireUserId()
         val docRef = db.collection("users").document(uid).collection("daily_challenges").document(dateString)
         try {
@@ -437,6 +536,10 @@ class SudokuRepository(
     }
 
     suspend fun unlockSticker(id: String) {
+        if (isLocalOnlySession()) {
+            dao?.unlockSticker(id)
+            return
+        }
         val uid = requireUserId()
         val docRef = db.collection("users").document(uid).collection("stickers").document(id)
         try {

@@ -86,10 +86,14 @@ enum class ScreenTab(
 @Composable
 fun AppNavigation() {
     var currentUser by remember { mutableStateOf(Firebase.auth.currentUser) }
+    var isOfflineGuest by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
         val listener = FirebaseAuth.AuthStateListener { auth ->
             currentUser = auth.currentUser
+            if (auth.currentUser != null) {
+                isOfflineGuest = false
+            }
         }
         Firebase.auth.addAuthStateListener(listener)
         onDispose {
@@ -98,14 +102,25 @@ fun AppNavigation() {
     }
 
     val user = currentUser
-    if (user == null) {
+    if (user == null && !isOfflineGuest) {
         AuthScreen(
-            onAuthSuccess = { currentUser = Firebase.auth.currentUser }
+            onAuthSuccess = {
+                currentUser = Firebase.auth.currentUser
+                if (currentUser == null) {
+                    isOfflineGuest = true
+                }
+            },
+            onContinueOffline = {
+                isOfflineGuest = true
+            }
         )
     } else {
         AuthenticatedAppContent(
-            currentUserId = user.uid,
-            onSignedOut = { currentUser = null }
+            currentUserId = user?.uid ?: "offline_local_player",
+            onSignedOut = {
+                currentUser = null
+                isOfflineGuest = false
+            }
         )
     }
 }

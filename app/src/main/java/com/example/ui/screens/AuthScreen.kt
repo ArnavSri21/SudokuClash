@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +31,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -70,8 +72,16 @@ import com.google.firebase.Firebase
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
 
 fun attemptAutoSignIn(
     context: Context,
@@ -98,16 +108,19 @@ fun attemptAutoSignIn(
         .build()
 
     val request = GetCredentialRequest.Builder().addCredentialOption(googleIdOption).build()
+    val activityContext = context.findActivity() ?: context
 
     scope.launch {
         try {
-            val result = credentialManager.getCredential(context, request)
+            val result = credentialManager.getCredential(activityContext, request)
             val credential = result.credential
             if (credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
                 val authCredential = GoogleAuthProvider.getCredential(googleIdToken, null)
                 Firebase.auth.signInWithCredential(authCredential).await()
-                onAuthSuccess()
+                withContext(Dispatchers.Main) {
+                    onAuthSuccess()
+                }
             } else {
                 onUnauthenticated()
             }
@@ -134,17 +147,19 @@ fun onGoogleSignInClicked(
 
     val signInOption = GetSignInWithGoogleOption.Builder(serverClientId = clientId).build()
     val request = GetCredentialRequest.Builder().addCredentialOption(signInOption).build()
+    val activityContext = context.findActivity() ?: context
 
     scope.launch {
         try {
-            val activityContext = context as? Activity ?: context
             val result = credentialManager.getCredential(activityContext, request)
             val credential = result.credential
             if (credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
                 val authCredential = GoogleAuthProvider.getCredential(googleIdToken, null)
                 Firebase.auth.signInWithCredential(authCredential).await()
-                onAuthSuccess()
+                withContext(Dispatchers.Main) {
+                    onAuthSuccess()
+                }
             } else {
                 onAuthError("Unexpected credential type")
             }
@@ -171,7 +186,9 @@ fun signOut(
         } catch (e: Exception) {
             Log.e("Auth", "Failed to clear credential state", e)
         } finally {
-            onSignOutComplete()
+            withContext(Dispatchers.Main) {
+                onSignOutComplete()
+            }
         }
     }
 }
@@ -180,6 +197,7 @@ fun signOut(
 fun GoogleSignInButton(
     onAuthSuccess: () -> Unit,
     onAuthError: (String) -> Unit,
+    onAuthCancelled: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -202,7 +220,10 @@ fun GoogleSignInButton(
                     onAuthError(errorMsg)
                 },
                 scope = coroutineScope,
-                onAuthCancelled = { isLoading = false }
+                onAuthCancelled = {
+                    isLoading = false
+                    onAuthCancelled()
+                }
             )
         },
         enabled = !isLoading,
@@ -234,7 +255,8 @@ fun GoogleSignInButton(
 
 @Composable
 fun AuthScreen(
-    onAuthSuccess: () -> Unit
+    onAuthSuccess: () -> Unit,
+    onContinueOffline: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -348,8 +370,29 @@ fun AuthScreen(
 
                     GoogleSignInButton(
                         onAuthSuccess = onAuthSuccess,
-                        onAuthError = { errorMessage = it }
+                        onAuthError = { errorMessage = it },
+                        onAuthCancelled = {
+                            errorMessage = "Google Sign-In was dismissed or no Google account is configured on this device. You can retry or continue in offline mode."
+                        }
                     )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedButton(
+                        onClick = onContinueOffline,
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .testTag("continue_offline_button")
+                    ) {
+                        Text(
+                            text = "Play Offline (Local Storage)",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = DigitGiven
+                        )
+                    }
                 }
             }
         }

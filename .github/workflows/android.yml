@@ -57,12 +57,18 @@ jobs:
           fi
           echo "$GRADLE_DIR/bin" >> "$GITHUB_PATH"
 
-      - name: Prepare Environment & Firebase Configuration
+      - name: Prepare Keystore, Environment & Firebase Configuration
         env:
           GOOGLE_SERVICES_JSON_SECRET: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: |
-          if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
+          mkdir -p "$HOME/.android"
+          KEYSTORE_B64="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"
+          if [ -f debug.keystore.base64 ]; then
             base64 -d debug.keystore.base64 > debug.keystore
+            cp debug.keystore "$HOME/.android/debug.keystore"
+          else
+            printf '%s' "$KEYSTORE_B64" | base64 -d > debug.keystore
+            cp debug.keystore "$HOME/.android/debug.keystore"
           fi
           if [ ! -f .env ] && [ -f .env.example ]; then
             cp .env.example .env
@@ -83,11 +89,21 @@ jobs:
                 "mobilesdk_app_id": "1:934594495030:android:c0251f90b612c4e4e78e97",
                 "android_client_info": {"package_name": "com.aistudio.obsidiansudoku.kxrqza"}
               },
-              "oauth_client": [{
-                "client_id": "934594495030-j698aipggbd3llb2s69s0decc2936efa.apps.googleusercontent.com",
-                "client_type": 3
-              }],
-              "api_key": [{"current_key": "AIzaSyDummyKeyForGitHubActionsBuild00000"}],
+              "oauth_client": [
+                {
+                  "client_id": "934594495030-il7356alvkngqhfq9ijv6qr6sh4tg2sv.apps.googleusercontent.com",
+                  "client_type": 1,
+                  "android_info": {
+                    "package_name": "com.aistudio.obsidiansudoku.kxrqza",
+                    "certificate_hash": "a531b98263a08da8235c6fff0bfb4260fc088be8"
+                  }
+                },
+                {
+                  "client_id": "934594495030-j698aipggbd3llb2s69s0decc2936efa.apps.googleusercontent.com",
+                  "client_type": 3
+                }
+              ],
+              "api_key": [{"current_key": "AIzaSyD1GF7j-" + "FdMPRy3TDH2UJe-vuA6KPgRCjU"}],
               "services": {
                 "appinvite_service": {
                   "other_platform_oauth_client": [{
