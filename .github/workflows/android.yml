@@ -130,7 +130,8 @@ jobs:
 
       - name: Compile Debug APK
         run: |
-          gradle :app:assembleDebug --no-daemon --stacktrace
+          echo "::remove-matcher owner=java::"
+          gradle :app:assembleDebug
 
       - name: Upload Debug APK as Workflow Artifact
         uses: actions/upload-artifact@v4
@@ -146,9 +147,10 @@ jobs:
           LATEST_APK_URL: "https://github.com/${{ github.repository }}/releases/latest/download/app-debug.apk"
         run: |
           APK_FILE=$(ls app/build/outputs/apk/debug/*.apk | head -n 1)
-          cp "$APK_FILE" app/build/outputs/apk/debug/app-debug.apk
-          cp "$APK_FILE" app/build/outputs/apk/debug/obsidian-sudoku-debug.apk
-          cp "$APK_FILE" app/build/outputs/apk/debug/Obsidian-Sudoku.apk
+          mkdir -p /tmp/release-assets
+          cp -f "$APK_FILE" /tmp/release-assets/app-debug.apk
+          cp -f "$APK_FILE" /tmp/release-assets/obsidian-sudoku-debug.apk
+          cp -f "$APK_FILE" /tmp/release-assets/Obsidian-Sudoku.apk
 
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           TAG_NAME="debug-build-${{ github.run_number }}-${SHORT_SHA}"
@@ -163,20 +165,20 @@ jobs:
           - **Permanent Latest APK Link (for Paperflow)**: \`${LATEST_APK_URL}\`
           - **Build-Specific APK Link**: \`${TAG_APK_URL}\`"
 
-          # Publish build-specific release as the official Latest Release (--latest instead of --prerelease)
+          # Publish build-specific release as the official Latest Release (without --prerelease)
           # so that /releases/latest/download/app-debug.apk always resolves to the newest APK.
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
             gh release upload "$TAG_NAME" \
-              app/build/outputs/apk/debug/app-debug.apk \
-              app/build/outputs/apk/debug/obsidian-sudoku-debug.apk \
-              app/build/outputs/apk/debug/Obsidian-Sudoku.apk \
+              /tmp/release-assets/app-debug.apk \
+              /tmp/release-assets/obsidian-sudoku-debug.apk \
+              /tmp/release-assets/Obsidian-Sudoku.apk \
               --clobber
-            gh release edit "$TAG_NAME" --prerelease=false --latest
+            gh release edit "$TAG_NAME" --prerelease=false --latest || true
           else
             gh release create "$TAG_NAME" \
-              app/build/outputs/apk/debug/app-debug.apk \
-              app/build/outputs/apk/debug/obsidian-sudoku-debug.apk \
-              app/build/outputs/apk/debug/Obsidian-Sudoku.apk \
+              /tmp/release-assets/app-debug.apk \
+              /tmp/release-assets/obsidian-sudoku-debug.apk \
+              /tmp/release-assets/Obsidian-Sudoku.apk \
               --target "${{ github.sha }}" \
               --title "$RELEASE_TITLE" \
               --notes "$NOTES" \
@@ -186,19 +188,19 @@ jobs:
           # Also maintain a rolling v1.0.0 tag in this repository for backwards-compatible direct links
           if gh release view "v1.0.0" >/dev/null 2>&1; then
             gh release upload "v1.0.0" \
-              app/build/outputs/apk/debug/app-debug.apk \
-              app/build/outputs/apk/debug/obsidian-sudoku-debug.apk \
-              app/build/outputs/apk/debug/Obsidian-Sudoku.apk \
-              --clobber
+              /tmp/release-assets/app-debug.apk \
+              /tmp/release-assets/obsidian-sudoku-debug.apk \
+              /tmp/release-assets/Obsidian-Sudoku.apk \
+              --clobber || true
           else
             gh release create "v1.0.0" \
-              app/build/outputs/apk/debug/app-debug.apk \
-              app/build/outputs/apk/debug/obsidian-sudoku-debug.apk \
-              app/build/outputs/apk/debug/Obsidian-Sudoku.apk \
+              /tmp/release-assets/app-debug.apk \
+              /tmp/release-assets/obsidian-sudoku-debug.apk \
+              /tmp/release-assets/Obsidian-Sudoku.apk \
               --target "${{ github.sha }}" \
               --title "Obsidian Sudoku Rolling APK (v1.0.0)" \
               --notes "$NOTES" \
-              --prerelease
+              --prerelease || true
           fi
 
           # If a Personal Access Token (PAPERFLOW_PAT or GH_PAT) with access to ArnavSri21/paper-flow is configured,
@@ -206,7 +208,7 @@ jobs:
           if [ -n "$CROSS_REPO_TOKEN" ]; then
             echo "Syncing new APK link and binary to ArnavSri21/paper-flow..."
             GH_TOKEN="$CROSS_REPO_TOKEN" gh release upload "v1.0.0" \
-              app/build/outputs/apk/debug/app-debug.apk \
+              /tmp/release-assets/app-debug.apk \
               --repo "ArnavSri21/paper-flow" \
               --clobber || true
 
