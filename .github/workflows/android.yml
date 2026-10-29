@@ -139,28 +139,103 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-      - name: Publish Debug APK to GitHub Releases & Paperflow Channel
+      - name: Publish Debug APK to GitHub Releases & Update Paperflow Link
         env:
           GH_TOKEN: ${{ github.token }}
+          CROSS_REPO_TOKEN: ${{ secrets.PAPERFLOW_PAT || secrets.GH_PAT || '' }}
+          LATEST_APK_URL: "https://github.com/${{ github.repository }}/releases/latest/download/app-debug.apk"
         run: |
           APK_FILE=$(ls app/build/outputs/apk/debug/*.apk | head -n 1)
+          cp "$APK_FILE" app/build/outputs/apk/debug/app-debug.apk
           cp "$APK_FILE" app/build/outputs/apk/debug/obsidian-sudoku-debug.apk
-          NAMED_APK="app/build/outputs/apk/debug/obsidian-sudoku-debug.apk"
+          cp "$APK_FILE" app/build/outputs/apk/debug/Obsidian-Sudoku.apk
+
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           TAG_NAME="debug-build-${{ github.run_number }}-${SHORT_SHA}"
           RELEASE_TITLE="Obsidian Sudoku APK Build #${{ github.run_number }} (${SHORT_SHA})"
-          NOTES="### 📱 Obsidian Sudoku Debug Build #${{ github.run_number }}
-- **Branch**: \`${{ github.ref_name }}\`
-- **Commit**: \`${{ github.sha }}\`
-- **Paperflow Channel**: [https://paperflow.dev/apps/obsidian-sudoku](https://paperflow.dev/apps/obsidian-sudoku)
-- **Direct APK Artifact**: Included below as \`obsidian-sudoku-debug.apk\`."
+          LATEST_APK_URL="https://github.com/${{ github.repository }}/releases/latest/download/app-debug.apk"
+          TAG_APK_URL="https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/app-debug.apk"
 
+          NOTES="### 📱 Obsidian Sudoku Build #${{ github.run_number }}
+          - **Branch**: \`${{ github.ref_name }}\`
+          - **Commit**: \`${{ github.sha }}\`
+          - **Paperflow Website**: [https://paperflow.hs.vc](https://paperflow.hs.vc)
+          - **Permanent Latest APK Link (for Paperflow)**: \`${LATEST_APK_URL}\`
+          - **Build-Specific APK Link**: \`${TAG_APK_URL}\`"
+
+          # Publish build-specific release as the official Latest Release (--latest instead of --prerelease)
+          # so that /releases/latest/download/app-debug.apk always resolves to the newest APK.
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" "$NAMED_APK" --clobber
+            gh release upload "$TAG_NAME" \
+              app/build/outputs/apk/debug/app-debug.apk \
+              app/build/outputs/apk/debug/obsidian-sudoku-debug.apk \
+              app/build/outputs/apk/debug/Obsidian-Sudoku.apk \
+              --clobber
+            gh release edit "$TAG_NAME" --prerelease=false --latest
           else
-            gh release create "$TAG_NAME" "$NAMED_APK" \
+            gh release create "$TAG_NAME" \
+              app/build/outputs/apk/debug/app-debug.apk \
+              app/build/outputs/apk/debug/obsidian-sudoku-debug.apk \
+              app/build/outputs/apk/debug/Obsidian-Sudoku.apk \
               --target "${{ github.sha }}" \
               --title "$RELEASE_TITLE" \
               --notes "$NOTES" \
+              --latest
+          fi
+
+          # Also maintain a rolling v1.0.0 tag in this repository for backwards-compatible direct links
+          if gh release view "v1.0.0" >/dev/null 2>&1; then
+            gh release upload "v1.0.0" \
+              app/build/outputs/apk/debug/app-debug.apk \
+              app/build/outputs/apk/debug/obsidian-sudoku-debug.apk \
+              app/build/outputs/apk/debug/Obsidian-Sudoku.apk \
+              --clobber
+          else
+            gh release create "v1.0.0" \
+              app/build/outputs/apk/debug/app-debug.apk \
+              app/build/outputs/apk/debug/obsidian-sudoku-debug.apk \
+              app/build/outputs/apk/debug/Obsidian-Sudoku.apk \
+              --target "${{ github.sha }}" \
+              --title "Obsidian Sudoku Rolling APK (v1.0.0)" \
+              --notes "$NOTES" \
               --prerelease
           fi
+
+          # If a Personal Access Token (PAPERFLOW_PAT or GH_PAT) with access to ArnavSri21/paper-flow is configured,
+          # automatically update ArnavSri21/paper-flow's index.html and v1.0.0 release asset.
+          if [ -n "$CROSS_REPO_TOKEN" ]; then
+            echo "Syncing new APK link and binary to ArnavSri21/paper-flow..."
+            GH_TOKEN="$CROSS_REPO_TOKEN" gh release upload "v1.0.0" \
+              app/build/outputs/apk/debug/app-debug.apk \
+              --repo "ArnavSri21/paper-flow" \
+              --clobber || true
+
+            python3 -c '
+          import base64, json, os, urllib.request
+          token = os.environ["CROSS_REPO_TOKEN"]
+          new_url = os.environ.get("LATEST_APK_URL", "https://github.com/ArnavSri21/SudokuClash/releases/latest/download/app-debug.apk")
+          api_url = "https://api.github.com/repos/ArnavSri21/paper-flow/contents/index.html"
+          req = urllib.request.Request(api_url, headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"})
+          with urllib.request.urlopen(req) as resp:
+              data = json.loads(resp.read().decode("utf-8"))
+          content = base64.b64decode(data["content"]).decode("utf-8")
+          old_url = "https://github.com/ArnavSri21/paper-flow/releases/download/v1.0.0/app-debug.apk"
+          if old_url in content:
+              updated = content.replace(old_url, new_url)
+              payload = json.dumps({
+                  "message": "chore: update Obsidian Sudoku APK link to latest SudokuClash release",
+                  "content": base64.b64encode(updated.encode("utf-8")).decode("utf-8"),
+                  "sha": data["sha"]
+              }).encode("utf-8")
+              put_req = urllib.request.Request(api_url, data=payload, method="PUT", headers={
+                  "Authorization": f"Bearer {token}",
+                  "Accept": "application/vnd.github+json",
+                  "Content-Type": "application/json"
+              })
+              urllib.request.urlopen(put_req)
+              print("Successfully updated index.html in ArnavSri21/paper-flow!")
+          else:
+              print("index.html in ArnavSri21/paper-flow already points to the updated APK URL.")
+          ' || echo "Note: Could not auto-commit to ArnavSri21/paper-flow; verify PAPERFLOW_PAT permissions."
+          fi
+

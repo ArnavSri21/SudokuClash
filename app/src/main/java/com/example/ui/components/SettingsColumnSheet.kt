@@ -78,8 +78,9 @@ import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.launch
 
-const val PAPERFLOW_APK_URL = "https://github.com/aistudio/obsidian-sudoku/releases/latest/download/obsidian-sudoku-debug.apk"
-const val PAPERFLOW_WEBSITE_URL = "https://paperflow.dev/apps/obsidian-sudoku"
+const val PAPERFLOW_APK_URL = "https://github.com/ArnavSri21/SudokuClash/releases/latest/download/app-debug.apk"
+const val PAPERFLOW_WEBSITE_URL = "https://paperflow.hs.vc"
+const val PAPERFLOW_REPO_EDIT_URL = "https://github.com/ArnavSri21/paper-flow/edit/main/index.html"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -418,14 +419,14 @@ fun SettingsColumnSheet(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        text = "Official Release Artifact on Paperflow",
+                        text = "Official Release Artifact on Paper Flow (paperflow.hs.vc)",
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
                         color = palette.cellGivenText
                     )
                     Text(
-                        text = "Download the latest compiled release APK directly or visit the Paperflow developer release hub for updates.",
-                        fontSize = 12.sp,
+                        text = "Direct Latest APK URL:\n$PAPERFLOW_APK_URL",
+                        fontSize = 11.sp,
                         color = palette.cellNoteText
                     )
 
