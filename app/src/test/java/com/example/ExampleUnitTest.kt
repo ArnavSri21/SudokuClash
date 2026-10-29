@@ -85,4 +85,31 @@ class ExampleUnitTest {
         invalidBoard[0][0] = invalidBoard[0][1]
         assertFalse(SudokuEngine.isBoardCompleteAndValid(invalidBoard))
     }
+
+    @Test
+    fun testCheckWinCondition() {
+        val solution = SudokuEngine.generateCompletedBoard(Random(42))
+        val currentBoard = Array(9) { r -> solution[r].clone() }
+
+        // Perfect win
+        val winResult = SudokuEngine.checkWinCondition(currentBoard, solution)
+        assertTrue("Completed solution should satisfy win condition", winResult.isWon)
+        assertTrue(winResult.isComplete)
+        assertFalse(winResult.hasConflicts)
+        assertEquals(0, winResult.emptyCellsCount)
+
+        // Incomplete board
+        currentBoard[0][0] = 0
+        val incompleteResult = SudokuEngine.checkWinCondition(currentBoard, solution)
+        assertFalse("Incomplete board should not be a win", incompleteResult.isWon)
+        assertFalse(incompleteResult.isComplete)
+        assertEquals(1, incompleteResult.emptyCellsCount)
+
+        // Completed board with incorrect cell
+        currentBoard[0][0] = if (solution[0][0] == 9) 1 else solution[0][0] + 1
+        val mismatchResult = SudokuEngine.checkWinCondition(currentBoard, solution)
+        assertFalse("Board with mismatch should not win", mismatchResult.isWon)
+        assertTrue(mismatchResult.isComplete)
+        assertTrue(mismatchResult.hasConflicts)
+    }
 }

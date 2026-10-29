@@ -233,6 +233,61 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "Leaderboard": {
+      "title": "Leaderboard",
+      "description": "Public realtime leaderboard record for a user.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "UID of the owner user."
+        },
+        "username": {
+          "type": "string",
+          "description": "Public display username chosen by user."
+        },
+        "score": {
+          "type": "integer",
+          "description": "Cumulative leaderboard rating score."
+        },
+        "gamesWon": {
+          "type": "integer",
+          "description": "Total Sudoku games won."
+        },
+        "winStreak": {
+          "type": "integer",
+          "description": "Current consecutive puzzle win streak."
+        },
+        "bestTimeSeconds": {
+          "type": "integer",
+          "description": "Fastest solve time in seconds."
+        },
+        "bestTime": {
+          "type": "string",
+          "description": "Formatted best time (e.g. 02:45)."
+        },
+        "title": {
+          "type": "string",
+          "description": "Honorary rank title (e.g. Grandmaster, Obsidian Solver)."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last leaderboard update (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "username",
+        "score",
+        "gamesWon",
+        "winStreak",
+        "bestTimeSeconds",
+        "bestTime",
+        "title",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -251,6 +306,10 @@
     "/users/{userId}/game_stats/{difficulty}": {
       "schema": "GameStats",
       "description": "Stores per-difficulty game statistics for the user."
+    },
+    "/leaderboard/{userId}": {
+      "schema": "Leaderboard",
+      "description": "Stores realtime public leaderboard profile for each user."
     }
   }
 }

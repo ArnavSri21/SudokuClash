@@ -121,12 +121,13 @@ fun SudokuCellView(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val palette = com.example.ui.theme.LocalThemePalette.current
     val targetBgColor = when {
         cell.isError -> ObsidianErrorBg
-        isSelected -> CellSelected
-        isSameNumber -> CellSameNumber
-        cell.isHint -> CellHintHighlight
-        isRelated -> CellRelated
+        isSelected -> palette.cellSelected
+        isSameNumber -> palette.cellSameNumber
+        cell.isHint -> palette.secondary.copy(alpha = 0.35f)
+        isRelated -> palette.cellRelated
         else -> Color.Transparent
     }
 
@@ -145,7 +146,7 @@ fun SudokuCellView(
             .background(animatedBgColor)
             .border(
                 width = 0.5.dp,
-                color = ObsidianBorder
+                color = palette.border
             )
             .clickable { onClick() }
             .testTag("cell_${cell.row}_${cell.col}"),
@@ -158,7 +159,7 @@ fun SudokuCellView(
                     .align(Alignment.CenterEnd)
                     .fillMaxHeight()
                     .size(width = 2.dp, height = 0.dp)
-                    .background(ObsidianBorderStrong)
+                    .background(palette.borderStrong)
             )
         }
         if (isBottomThick) {
@@ -167,16 +168,16 @@ fun SudokuCellView(
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .size(width = 0.dp, height = 2.dp)
-                    .background(ObsidianBorderStrong)
+                    .background(palette.borderStrong)
             )
         }
 
         if (cell.value != 0) {
             val textColor = when {
                 cell.isError -> CellErrorText
-                cell.isGiven -> CellGivenText
-                cell.isHint -> ObsidianPrimary
-                else -> CellUserText
+                cell.isGiven -> palette.cellGivenText
+                cell.isHint -> palette.primary
+                else -> palette.cellUserText
             }
 
             Text(

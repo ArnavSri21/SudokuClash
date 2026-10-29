@@ -469,16 +469,10 @@ class SudokuViewModel(
     }
 
     private fun isBoardFullySolved(board: List<List<Cell>>, solution: Array<IntArray>): Boolean {
-        for (r in 0 until 9) {
-            for (c in 0 until 9) {
-                val cell = board[r][c]
-                if (cell.value == 0 || cell.isError || cell.value != solution[r][c]) {
-                    return false
-                }
-            }
-        }
-        return true
+        val matrix = Array(9) { r -> IntArray(9) { c -> board[r][c].value } }
+        return SudokuEngine.checkWinCondition(matrix, solution).isWon
     }
+
 
     private fun serializeBoard(board: List<List<Cell>>): String {
         return board.flatten().joinToString(",") { "${it.value}:${if (it.isGiven) 1 else 0}:${if (it.isError) 1 else 0}" }

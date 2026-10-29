@@ -61,6 +61,8 @@ fun DailyScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
+    val palette = com.example.ui.theme.LocalThemePalette.current
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -74,8 +76,8 @@ fun DailyScreen(
                 .fillMaxWidth()
                 .testTag("streak_banner"),
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = ObsidianSurface),
-            border = androidx.compose.foundation.BorderStroke(1.dp, WarmAmber.copy(alpha = 0.6f))
+            colors = CardDefaults.cardColors(containerColor = palette.surface),
+            border = androidx.compose.foundation.BorderStroke(1.dp, palette.secondary.copy(alpha = 0.6f))
         ) {
             Row(
                 modifier = Modifier
@@ -92,13 +94,13 @@ fun DailyScreen(
                         Icon(
                             imageVector = Icons.Default.LocalFireDepartment,
                             contentDescription = "Streak",
-                            tint = WarmAmber,
+                            tint = palette.secondary,
                             modifier = Modifier.size(24.dp)
                         )
                         Text(
-                            text = "Daily Streak",
+                            text = "Active Streak",
                             style = MaterialTheme.typography.titleMedium,
-                            color = WarmAmber,
+                            color = palette.secondary,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -107,12 +109,12 @@ fun DailyScreen(
                         text = "${uiState.streak} Days In a Row",
                         style = MaterialTheme.typography.displayMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = palette.cellGivenText
                     )
                     Text(
-                        text = if (uiState.isTodayCompleted) "Today's challenge complete! Streak secured." else "Complete today's puzzle to maintain your streak.",
+                        text = if (uiState.isTodayCompleted) "Streak secured for today! Any puzzle solved advances your career streak." else "Solve any puzzle today (Daily or Casual) to increase your streak!",
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (uiState.isTodayCompleted) EmeraldGreen else Color.Gray
+                        color = if (uiState.isTodayCompleted) palette.secondary else palette.cellNoteText
                     )
                 }
 
@@ -120,13 +122,13 @@ fun DailyScreen(
                     modifier = Modifier
                         .size(60.dp)
                         .clip(CircleShape)
-                        .background(WarmAmber.copy(alpha = 0.15f)),
+                        .background(palette.secondary.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.LocalFireDepartment,
                         contentDescription = null,
-                        tint = WarmAmber,
+                        tint = palette.secondary,
                         modifier = Modifier.size(36.dp)
                     )
                 }

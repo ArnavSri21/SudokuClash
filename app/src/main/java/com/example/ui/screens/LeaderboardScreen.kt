@@ -12,13 +12,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.EmojiEvents
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -36,16 +39,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.theme.DigitGiven
-import com.example.ui.theme.EmeraldGreen
-import com.example.ui.theme.NeonCyan
-import com.example.ui.theme.ObsidianBorder
-import com.example.ui.theme.ObsidianBorderStrong
-import com.example.ui.theme.ObsidianCard
-import com.example.ui.theme.ObsidianPrimary
-import com.example.ui.theme.ObsidianSurface
-import com.example.ui.theme.ObsidianViolet
-import com.example.ui.theme.WarmAmber
+import com.example.ui.theme.LocalThemePalette
 import com.example.ui.viewmodel.LeaderboardEntry
 import com.example.ui.viewmodel.SocialViewModel
 
@@ -55,6 +49,7 @@ fun LeaderboardScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val palette = LocalThemePalette.current
 
     Column(
         modifier = modifier
@@ -62,14 +57,14 @@ fun LeaderboardScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Player stats overview
+        // Player stats overview card
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("stats_overview_card"),
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = ObsidianSurface),
-            border = androidx.compose.foundation.BorderStroke(1.dp, ObsidianBorderStrong)
+            colors = CardDefaults.cardColors(containerColor = palette.surface),
+            border = androidx.compose.foundation.BorderStroke(1.dp, palette.borderStrong)
         ) {
             Row(
                 modifier = Modifier
@@ -86,27 +81,58 @@ fun LeaderboardScreen(
                         Icon(
                             imageVector = Icons.Default.EmojiEvents,
                             contentDescription = null,
-                            tint = WarmAmber,
+                            tint = palette.primary,
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
                             text = "${uiState.totalGamesWon}",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = palette.cellGivenText
                         )
                     }
                     Text(
                         text = "Victories",
                         fontSize = 12.sp,
-                        color = Color.Gray
+                        color = palette.cellNoteText
                     )
                 }
 
                 Box(
                     modifier = Modifier
                         .size(width = 1.dp, height = 36.dp)
-                        .background(ObsidianBorder)
+                        .background(palette.border)
+                )
+
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LocalFireDepartment,
+                            contentDescription = null,
+                            tint = palette.secondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "${uiState.currentStreak}",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = palette.cellGivenText
+                        )
+                    }
+                    Text(
+                        text = "Active Streak",
+                        fontSize = 12.sp,
+                        color = palette.cellNoteText
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(width = 1.dp, height = 36.dp)
+                        .background(palette.border)
                 )
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -117,43 +143,67 @@ fun LeaderboardScreen(
                         Icon(
                             imageVector = Icons.Default.Timer,
                             contentDescription = null,
-                            tint = NeonCyan,
+                            tint = palette.secondary,
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
                             text = uiState.totalTimeFormatted,
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = palette.cellGivenText
                         )
                     }
                     Text(
                         text = "Time Played",
                         fontSize = 12.sp,
-                        color = Color.Gray
+                        color = palette.cellNoteText
                     )
                 }
             }
         }
 
-        // Leaderboard List Header
+        // Leaderboard List Header with Realtime Sync Indicator
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "Obsidian Leaderboard",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-            Text(
-                text = "Global Rank",
-                fontSize = 12.sp,
-                color = NeonCyan,
-                fontWeight = FontWeight.SemiBold
-            )
+            Column {
+                Text(
+                    text = "Global Leaderboard",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = palette.cellGivenText
+                )
+                Text(
+                    text = "Playing as @${uiState.publicUsername}",
+                    fontSize = 12.sp,
+                    color = palette.cellNoteText
+                )
+            }
+
+            // Realtime Sync chip
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(palette.secondary.copy(alpha = 0.15f))
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Bolt,
+                    contentDescription = null,
+                    tint = palette.secondary,
+                    modifier = Modifier.size(14.dp)
+                )
+                Text(
+                    text = "Realtime",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = palette.secondary
+                )
+            }
         }
 
         // Leaderboard List
@@ -172,22 +222,23 @@ fun LeaderboardScreen(
 
 @Composable
 fun LeaderboardRow(entry: LeaderboardEntry) {
+    val palette = LocalThemePalette.current
     val isUser = entry.isCurrentUser
     val medalColor = when (entry.rank) {
-        1 -> WarmAmber
+        1 -> Color(0xFFFFD700) // Gold
         2 -> Color(0xFFC0C0C0) // Silver
         3 -> Color(0xFFCD7F32) // Bronze
-        else -> Color.Gray
+        else -> palette.cellNoteText
     }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(if (isUser) ObsidianPrimary.copy(alpha = 0.15f) else ObsidianCard)
+            .background(if (isUser) palette.primary.copy(alpha = 0.18f) else palette.card)
             .border(
                 1.dp,
-                if (isUser) ObsidianViolet else ObsidianBorder,
+                if (isUser) palette.primary else palette.border,
                 RoundedCornerShape(14.dp)
             )
             .padding(horizontal = 16.dp, vertical = 12.dp)
@@ -206,7 +257,7 @@ fun LeaderboardRow(entry: LeaderboardEntry) {
                     .clip(CircleShape)
                     .background(
                         if (entry.rank <= 3) medalColor.copy(alpha = 0.2f)
-                        else ObsidianSurface
+                        else palette.surface
                     ),
                 contentAlignment = Alignment.Center
             ) {
@@ -214,7 +265,7 @@ fun LeaderboardRow(entry: LeaderboardEntry) {
                     text = "#${entry.rank}",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = if (entry.rank <= 3) medalColor else Color.Gray
+                    color = if (entry.rank <= 3) medalColor else palette.cellNoteText
                 )
             }
 
@@ -226,21 +277,21 @@ fun LeaderboardRow(entry: LeaderboardEntry) {
                     Text(
                         text = entry.name,
                         fontWeight = if (isUser) FontWeight.Bold else FontWeight.SemiBold,
-                        color = if (isUser) NeonCyan else Color.White,
+                        color = if (isUser) palette.secondary else palette.cellGivenText,
                         fontSize = 15.sp
                     )
                     if (isUser) {
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(4.dp))
-                                .background(ObsidianViolet.copy(alpha = 0.25f))
+                                .background(palette.primary.copy(alpha = 0.25f))
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Text(
                                 text = "YOU",
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = ObsidianViolet
+                                color = palette.primary
                             )
                         }
                     }
@@ -248,7 +299,7 @@ fun LeaderboardRow(entry: LeaderboardEntry) {
                 Text(
                     text = entry.title,
                     fontSize = 12.sp,
-                    color = Color.Gray
+                    color = palette.cellNoteText
                 )
             }
         }
@@ -258,12 +309,12 @@ fun LeaderboardRow(entry: LeaderboardEntry) {
                 text = "${entry.score} pts",
                 fontWeight = FontWeight.Bold,
                 fontSize = 14.sp,
-                color = if (isUser) NeonCyan else Color.White
+                color = if (isUser) palette.secondary else palette.cellGivenText
             )
             Text(
                 text = "Best: ${entry.bestTime}",
                 fontSize = 11.sp,
-                color = Color.Gray
+                color = palette.cellNoteText
             )
         }
     }

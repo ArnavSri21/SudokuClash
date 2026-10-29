@@ -139,20 +139,26 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-      - name: Publish Debug APK to GitHub Releases
+      - name: Publish Debug APK to GitHub Releases & Paperflow Channel
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           APK_FILE=$(ls app/build/outputs/apk/debug/*.apk | head -n 1)
+          cp "$APK_FILE" app/build/outputs/apk/debug/obsidian-sudoku-debug.apk
+          NAMED_APK="app/build/outputs/apk/debug/obsidian-sudoku-debug.apk"
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           TAG_NAME="debug-build-${{ github.run_number }}-${SHORT_SHA}"
-          RELEASE_TITLE="Debug APK Build #${{ github.run_number }} (${SHORT_SHA})"
-          NOTES="Automated debug APK build from branch \`${{ github.ref_name }}\` (commit \`${{ github.sha }}\`)."
+          RELEASE_TITLE="Obsidian Sudoku APK Build #${{ github.run_number }} (${SHORT_SHA})"
+          NOTES="### 📱 Obsidian Sudoku Debug Build #${{ github.run_number }}
+- **Branch**: \`${{ github.ref_name }}\`
+- **Commit**: \`${{ github.sha }}\`
+- **Paperflow Channel**: [https://paperflow.dev/apps/obsidian-sudoku](https://paperflow.dev/apps/obsidian-sudoku)
+- **Direct APK Artifact**: Included below as \`obsidian-sudoku-debug.apk\`."
 
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" "$APK_FILE" --clobber
+            gh release upload "$TAG_NAME" "$NAMED_APK" --clobber
           else
-            gh release create "$TAG_NAME" "$APK_FILE" \
+            gh release create "$TAG_NAME" "$NAMED_APK" \
               --target "${{ github.sha }}" \
               --title "$RELEASE_TITLE" \
               --notes "$NOTES" \

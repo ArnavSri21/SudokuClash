@@ -7,17 +7,20 @@ import com.example.data.model.DailyChallengeEntity
 import com.example.data.model.FirestoreDailyChallenge
 import com.example.data.model.FirestoreGameSession
 import com.example.data.model.FirestoreGameStats
+import com.example.data.model.FirestoreLeaderboardEntry
 import com.example.data.model.FirestoreSticker
 import com.example.data.model.GameSessionEntity
 import com.example.data.model.GameStatsEntity
 import com.example.data.model.StickerEntity
 import com.example.data.remote.OperationType
 import com.example.data.remote.handleFirestoreError
+import com.example.ui.viewmodel.LeaderboardEntry
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -32,13 +35,15 @@ import java.util.Locale
 
 class SudokuRepository(
     private val db: FirebaseFirestore,
-    private val dao: SudokuDao? = null
+    private val dao: SudokuDao? = null,
+    private val context: Context? = null
 ) {
     constructor(context: Context, dao: SudokuDao? = null) : this(
         FirebaseFirestore.getInstance(
             context.applicationContext.getString(R.string.firestore_database_id)
         ),
-        dao
+        dao,
+        context.applicationContext
     )
 
     private val auth
@@ -56,6 +61,226 @@ class SudokuRepository(
     private fun currentOrTargetUserId(targetUserId: String?): String {
         return targetUserId ?: auth.currentUser?.uid ?: "unauthenticated"
     }
+
+    fun getPublicUsername(): String {
+        val prefs = context?.getSharedPreferences("obsidian_sudoku_settings", Context.MODE_PRIVATE)
+        val saved = prefs?.getString("key_public_username", null)
+        if (!saved.isNullOrBlank()) return saved
+
+        val currentGoogleName = auth.currentUser?.displayName
+        if (!currentGoogleName.isNullOrBlank()) {
+            val sanitized = currentGoogleName.replace(Regex("[^a-zA-Z0-9_]"), "").take(18)
+            if (sanitized.isNotBlank()) return sanitized
+        }
+        val uidPart = auth.currentUser?.uid?.take(4) ?: "User"
+        return "Solver_$uidPart"
+    }
+
+    suspend fun setPublicUsername(newUsername: String) {
+        val trimmed = newUsername.trim().take(24)
+        if (trimmed.isBlank()) return
+        context?.getSharedPreferences("obsidian_sudoku_settings", Context.MODE_PRIVATE)
+            ?.edit()
+            ?.putString("key_public_username", trimmed)
+            ?.apply()
+
+        syncLeaderboardEntry(overrideUsername = trimmed)
+    }
+
+    fun getOverallStreak(): Int {
+        val prefs = context?.getSharedPreferences("obsidian_sudoku_settings", Context.MODE_PRIVATE)
+        val today = getTodayDateString()
+        val cal = Calendar.getInstance()
+        cal.add(Calendar.DAY_OF_YEAR, -1)
+        val yesterday = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(cal.time)
+
+        val lastWonDate = prefs?.getString("key_last_won_date", "") ?: ""
+        val currentStreak = prefs?.getInt("key_overall_streak", 0) ?: 0
+
+        // If last won date is earlier than yesterday, streak is broken
+        return when {
+            lastWonDate == today || lastWonDate == yesterday -> currentStreak.coerceAtLeast(1)
+            lastWonDate.isNotBlank() -> 0
+            else -> currentStreak
+        }
+    }
+
+    private fun updateOverallStreakOnWin(): Int {
+        val prefs = context?.getSharedPreferences("obsidian_sudoku_settings", Context.MODE_PRIVATE)
+        val today = getTodayDateString()
+        val cal = Calendar.getInstance()
+        cal.add(Calendar.DAY_OF_YEAR, -1)
+        val yesterday = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(cal.time)
+
+        val lastWonDate = prefs?.getString("key_last_won_date", "") ?: ""
+        val currentStreak = prefs?.getInt("key_overall_streak", 0) ?: 0
+
+        val newStreak = when {
+            lastWonDate == yesterday -> currentStreak + 1
+            lastWonDate == today -> if (currentStreak > 0) currentStreak else 1
+            else -> 1 // Started today
+        }
+
+        prefs?.edit()
+            ?.putInt("key_overall_streak", newStreak)
+            ?.putString("key_last_won_date", today)
+            ?.apply()
+
+        return newStreak
+    }
+
+    // -------------------------------------------------------------
+    // REALTIME LEADERBOARD
+    // -------------------------------------------------------------
+
+    fun observeLeaderboard(): Flow<List<LeaderboardEntry>> = callbackFlow {
+        val colRef = db.collection("leaderboard")
+        val currentUid = auth.currentUser?.uid
+
+        fun fallbackList(): List<LeaderboardEntry> {
+            val myName = getPublicUsername()
+            val myStreak = getOverallStreak()
+            val userScore = (myStreak * 150 + 450).coerceAtLeast(300)
+            return listOf(
+                LeaderboardEntry(1, "Aetherius", "Grandmaster", 3850, "02:14"),
+                LeaderboardEntry(2, "Vespera", "Void Sovereign", 3120, "02:45"),
+                LeaderboardEntry(3, myName, "Obsidian Solver", userScore, if (myStreak > 0) "02:50" else "--:--", isCurrentUser = true),
+                LeaderboardEntry(4, "Kaelen", "Cipher Adept", 2250, "03:12"),
+                LeaderboardEntry(5, "Nyx_99", "Grid Sentinel", 1840, "03:55"),
+                LeaderboardEntry(6, "Solaris", "Pencil Artisan", 1430, "04:10"),
+                LeaderboardEntry(7, "Zephyr", "Rift Seeker", 980, "05:02")
+            ).sortedByDescending { it.score }.mapIndexed { idx, item -> item.copy(rank = idx + 1) }
+        }
+
+        if (auth.currentUser == null) {
+            trySend(fallbackList())
+            awaitClose { }
+            return@callbackFlow
+        }
+
+        val registration = colRef
+            .orderBy("score", Query.Direction.DESCENDING)
+            .limit(50)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    trySend(fallbackList())
+                    return@addSnapshotListener
+                }
+                if (snapshot == null || snapshot.isEmpty) {
+                    trySend(fallbackList())
+                    return@addSnapshotListener
+                }
+
+                var hasCurrentUserInList = false
+                val remoteList = snapshot.documents.mapIndexed { index, doc ->
+                    val entryUid = doc.getString("userId") ?: doc.id
+                    val username = doc.getString("username") ?: "Solver_${entryUid.take(4)}"
+                    val score = (doc.getLong("score") ?: 0L).toInt()
+                    val bestTime = doc.getString("bestTime") ?: "--:--"
+                    val title = doc.getString("title") ?: "Obsidian Solver"
+                    val isCurrent = (currentUid != null && (entryUid == currentUid || doc.id == currentUid))
+                    if (isCurrent) hasCurrentUserInList = true
+
+                    LeaderboardEntry(
+                        rank = index + 1,
+                        name = username,
+                        title = title,
+                        score = score,
+                        bestTime = bestTime,
+                        isCurrentUser = isCurrent
+                    )
+                }.toMutableList()
+
+                // If current user is not in top 50, append local user entry
+                if (!hasCurrentUserInList && currentUid != null) {
+                    val myName = getPublicUsername()
+                    val myStreak = getOverallStreak()
+                    remoteList.add(
+                        LeaderboardEntry(
+                            rank = remoteList.size + 1,
+                            name = myName,
+                            title = "Obsidian Solver",
+                            score = myStreak * 150 + 100,
+                            bestTime = "--:--",
+                            isCurrentUser = true
+                        )
+                    )
+                }
+
+                trySend(remoteList)
+            }
+        awaitClose { registration.remove() }
+    }
+
+    suspend fun syncLeaderboardEntry(overrideUsername: String? = null) {
+        val uid = auth.currentUser?.uid ?: return
+        val username = overrideUsername ?: getPublicUsername()
+        val docRef = db.collection("leaderboard").document(uid)
+
+        val allStatsList = try {
+            val snap = db.collection("users").document(uid).collection("game_stats").get().await()
+            snap.documents.mapNotNull { it.toObject(FirestoreGameStats::class.java)?.toEntity() }
+        } catch (_: Exception) {
+            emptyList()
+        }
+
+        val totalWon = allStatsList.sumOf { it.gamesWon }
+        val totalPerfect = allStatsList.sumOf { it.perfectGames }
+        val streak = getOverallStreak()
+        val bestTimeSecs = allStatsList.filter { it.bestTimeSeconds > 0 }.minOfOrNull { it.bestTimeSeconds } ?: 0L
+        val bestTimeStr = if (bestTimeSecs > 0) {
+            val mins = bestTimeSecs / 60
+            val secs = bestTimeSecs % 60
+            String.format(Locale.US, "%02d:%02d", mins, secs)
+        } else "--:--"
+
+        val score = (totalWon * 150 + totalPerfect * 200 + streak * 50).coerceAtLeast(100)
+        val title = when {
+            score >= 5000 -> "Grandmaster"
+            score >= 3000 -> "Void Sovereign"
+            score >= 1500 -> "Grid Sentinel"
+            score >= 500 -> "Cipher Adept"
+            else -> "Obsidian Initiate"
+        }
+
+        try {
+            val existing = docRef.get().await()
+            if (existing.exists()) {
+                docRef.update(
+                    mapOf(
+                        "username" to username,
+                        "score" to score,
+                        "gamesWon" to totalWon,
+                        "winStreak" to streak,
+                        "bestTimeSeconds" to bestTimeSecs,
+                        "bestTime" to bestTimeStr,
+                        "title" to title,
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                ).await()
+            } else {
+                docRef.set(
+                    mapOf(
+                        "userId" to uid,
+                        "username" to username,
+                        "score" to score,
+                        "gamesWon" to totalWon,
+                        "winStreak" to streak,
+                        "bestTimeSeconds" to bestTimeSecs,
+                        "bestTime" to bestTimeStr,
+                        "title" to title,
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                ).await()
+            }
+        } catch (_: Exception) {
+            // Firestore write ignored if transient
+        }
+    }
+
+    // -------------------------------------------------------------
+    // GAME SESSIONS
+    // -------------------------------------------------------------
 
     fun observeActiveSession(targetUserId: String? = null): Flow<GameSessionEntity?> {
         if (isLocalOnlySession(targetUserId)) {
@@ -339,18 +564,27 @@ class SudokuRepository(
         }
     }
 
+    /**
+     * Records a finished Sudoku game.
+     * When won, increments the overall active streak for ANY puzzle difficulty (not just Daily)!
+     */
     suspend fun recordGameFinished(
         difficulty: String,
         timeSeconds: Long,
         mistakes: Int,
         isWon: Boolean
     ) {
+        val newStreak = if (isWon) {
+            updateOverallStreakOnWin()
+        } else {
+            0
+        }
+
         if (isLocalOnlySession()) {
             val localDao = dao ?: return
             val existing = localDao.getStats(difficulty) ?: GameStatsEntity(difficulty = difficulty)
             val newPlayed = existing.gamesPlayed + 1
             val newWon = if (isWon) existing.gamesWon + 1 else existing.gamesWon
-            val newStreak = if (isWon) existing.winStreak + 1 else 0
             val newPerfect = if (isWon && mistakes == 0) existing.perfectGames + 1 else existing.perfectGames
             val newBestTime = if (isWon) {
                 if (existing.bestTimeSeconds == 0L || timeSeconds < existing.bestTimeSeconds) timeSeconds else existing.bestTimeSeconds
@@ -372,6 +606,8 @@ class SudokuRepository(
                 if (timeSeconds < 300) localDao.unlockSticker("speed_demon")
                 if (mistakes == 0) localDao.unlockSticker("flawless")
                 if (difficulty == "EXPERT") localDao.unlockSticker("expert_solver")
+                if (newStreak >= 3) localDao.unlockSticker("daily_streak_3")
+                if (newStreak >= 7) localDao.unlockSticker("daily_streak_7")
                 if (newWon >= 10) localDao.unlockSticker("ten_games")
             }
             return
@@ -392,7 +628,6 @@ class SudokuRepository(
 
             val newPlayed = existing.gamesPlayed + 1
             val newWon = if (isWon) existing.gamesWon + 1 else existing.gamesWon
-            val newStreak = if (isWon) existing.winStreak + 1 else 0
             val newPerfect = if (isWon && mistakes == 0) existing.perfectGames + 1 else existing.perfectGames
             val newBestTime = if (isWon) {
                 if (existing.bestTimeSeconds == 0L || timeSeconds < existing.bestTimeSeconds) {
@@ -445,18 +680,15 @@ class SudokuRepository(
 
             if (isWon) {
                 unlockSticker("first_win")
-                if (timeSeconds < 300) {
-                    unlockSticker("speed_demon")
-                }
-                if (mistakes == 0) {
-                    unlockSticker("flawless")
-                }
-                if (difficulty == "EXPERT") {
-                    unlockSticker("expert_solver")
-                }
-                if (newWon >= 10) {
-                    unlockSticker("ten_games")
-                }
+                if (timeSeconds < 300) unlockSticker("speed_demon")
+                if (mistakes == 0) unlockSticker("flawless")
+                if (difficulty == "EXPERT") unlockSticker("expert_solver")
+                if (newStreak >= 3) unlockSticker("daily_streak_3")
+                if (newStreak >= 7) unlockSticker("daily_streak_7")
+                if (newWon >= 10) unlockSticker("ten_games")
+
+                // Update leaderboard in realtime!
+                syncLeaderboardEntry()
             }
         } catch (e: CancellationException) {
             throw e
@@ -589,6 +821,9 @@ class SudokuRepository(
     }
 
     fun calculateStreak(challenges: List<DailyChallengeEntity>): Int {
+        val overall = getOverallStreak()
+        if (overall > 0) return overall
+
         if (challenges.isEmpty()) return 0
         val completedDates = challenges.filter { it.completed }.map { it.dateString }.toSet()
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)

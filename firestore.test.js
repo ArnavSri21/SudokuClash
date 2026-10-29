@@ -294,3 +294,46 @@ test("6. Authenticated owner: can create, read, list, update, and delete valid G
     })
   );
 });
+
+test("7. Realtime Leaderboard: authenticated users can read, owner can write, cross-user write denied", async () => {
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  await assertFails(unauthDb.collection("leaderboard").doc(ALICE_UID).get());
+
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const aliceLeadRef = aliceDb.collection("leaderboard").doc(ALICE_UID);
+  await assertSucceeds(
+    aliceLeadRef.set({
+      userId: ALICE_UID,
+      username: "AliceSolver",
+      score: 1500,
+      gamesWon: 10,
+      winStreak: 5,
+      bestTimeSeconds: 120,
+      bestTime: "02:00",
+      title: "Obsidian Solver",
+      updatedAt: nowTimestamp(),
+    })
+  );
+
+  // Bob can read Alice's public entry
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  await assertSucceeds(bobDb.collection("leaderboard").doc(ALICE_UID).get());
+  await assertSucceeds(bobDb.collection("leaderboard").get());
+
+  // Bob cannot modify Alice's entry
+  await assertFails(
+    bobDb.collection("leaderboard").doc(ALICE_UID).update({
+      score: 9999,
+      updatedAt: nowTimestamp(),
+    })
+  );
+
+  // Alice can update her username or score
+  await assertSucceeds(
+    aliceLeadRef.update({
+      username: "AliceGrandmaster",
+      score: 2000,
+      updatedAt: nowTimestamp(),
+    })
+  );
+});

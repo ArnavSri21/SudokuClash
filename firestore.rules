@@ -79,6 +79,45 @@ service cloud.firestore {
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
 
+    function isValidLeaderboard(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.username is string && data.username.size() >= 1 && data.username.size() <= 30 &&
+             data.score is int && data.score >= 0 && data.score <= 10000000 &&
+             data.gamesWon is int && data.gamesWon >= 0 && data.gamesWon <= 1000000 &&
+             data.winStreak is int && data.winStreak >= 0 && data.winStreak <= 1000000 &&
+             data.bestTimeSeconds is int && data.bestTimeSeconds >= 0 && data.bestTimeSeconds <= 3600000 &&
+             data.bestTime is string && data.bestTime.size() <= 30 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 50 &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /leaderboard/{userId} {
+      allow get, list: if isSignedIn();
+      allow create: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'username', 'score', 'gamesWon', 'winStreak',
+                         'bestTimeSeconds', 'bestTime', 'title', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'username', 'score', 'gamesWon', 'winStreak',
+                         'bestTimeSeconds', 'bestTime', 'title', 'updatedAt'
+                       ]) &&
+                       isValidLeaderboard(incoming());
+
+      allow update: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       isValidLeaderboard(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'username', 'score', 'gamesWon', 'winStreak',
+                         'bestTimeSeconds', 'bestTime', 'title', 'updatedAt'
+                       ]);
+
+      allow delete: if isOwner(userId) && isValidId(userId);
+    }
+
     match /users/{userId} {
       match /sessions/{sessionId} {
         allow get: if isOwner(userId) && isValidId(userId) && isValidId(sessionId);

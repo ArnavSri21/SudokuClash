@@ -133,3 +133,18 @@ data class FirestoreGameStats(
         )
     }
 }
+
+@IgnoreExtraProperties
+data class FirestoreLeaderboardEntry(
+    @DocumentId val id: String = "",
+    val userId: String = "",
+    val username: String = "",
+    val score: Int = 0,
+    val gamesWon: Int = 0,
+    val winStreak: Int = 0,
+    val bestTimeSeconds: Long = 0L,
+    val bestTime: String = "--:--",
+    val title: String = "Obsidian Solver",
+    @ServerTimestamp val updatedAt: Timestamp? = null
+)
+

@@ -1,25 +1,32 @@
 package com.example.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Leaderboard
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.GridOn
 import androidx.compose.material.icons.outlined.Leaderboard
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -33,16 +40,22 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.credentials.CredentialManager
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -52,16 +65,14 @@ import com.example.R
 import com.example.data.local.SudokuDatabase
 import com.example.data.repository.SudokuRepository
 import com.example.logic.Difficulty
+import com.example.ui.components.SettingsColumnSheet
 import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.DailyScreen
 import com.example.ui.screens.LeaderboardScreen
 import com.example.ui.screens.PlayScreen
 import com.example.ui.screens.StickersScreen
 import com.example.ui.screens.signOut
-import com.example.ui.theme.DigitGiven
-import com.example.ui.theme.ObsidianBg
-import com.example.ui.theme.ObsidianSurface
-import com.example.ui.theme.ObsidianViolet
+import com.example.ui.theme.LocalThemePalette
 import com.example.ui.viewmodel.DailyViewModel
 import com.example.ui.viewmodel.SocialViewModel
 import com.example.ui.viewmodel.StickersViewModel
@@ -86,7 +97,7 @@ enum class ScreenTab(
 @Composable
 fun AppNavigation() {
     var currentUser by remember { mutableStateOf(Firebase.auth.currentUser) }
-    var isOfflineGuest by androidx.compose.runtime.saveable.rememberSaveable {
+    var isOfflineGuest by rememberSaveable {
         mutableStateOf(Firebase.auth.currentUser != null)
     }
 
@@ -142,7 +153,7 @@ fun AuthenticatedAppContent(
                 val databaseId = app.getString(R.string.firestore_database_id)
                 val db = FirebaseFirestore.getInstance(databaseId)
                 val dao = SudokuDatabase.getDatabase(app).sudokuDao()
-                SudokuViewModel(SudokuRepository(db, dao))
+                SudokuViewModel(SudokuRepository(db, dao, app))
             }
         }
     )
@@ -155,7 +166,7 @@ fun AuthenticatedAppContent(
                 val databaseId = app.getString(R.string.firestore_database_id)
                 val db = FirebaseFirestore.getInstance(databaseId)
                 val dao = SudokuDatabase.getDatabase(app).sudokuDao()
-                DailyViewModel(SudokuRepository(db, dao))
+                DailyViewModel(SudokuRepository(db, dao, app))
             }
         }
     )
@@ -168,7 +179,7 @@ fun AuthenticatedAppContent(
                 val databaseId = app.getString(R.string.firestore_database_id)
                 val db = FirebaseFirestore.getInstance(databaseId)
                 val dao = SudokuDatabase.getDatabase(app).sudokuDao()
-                StickersViewModel(SudokuRepository(db, dao))
+                StickersViewModel(SudokuRepository(db, dao, app))
             }
         }
     )
@@ -181,7 +192,7 @@ fun AuthenticatedAppContent(
                 val databaseId = app.getString(R.string.firestore_database_id)
                 val db = FirebaseFirestore.getInstance(databaseId)
                 val dao = SudokuDatabase.getDatabase(app).sudokuDao()
-                SocialViewModel(SudokuRepository(db, dao))
+                SocialViewModel(SudokuRepository(db, dao, app))
             }
         }
     )
@@ -211,6 +222,9 @@ fun MainScreen(
     onSignOut: () -> Unit = {}
 ) {
     var currentTab by remember { mutableStateOf(ScreenTab.PLAY) }
+    var showSettingsSheet by remember { mutableStateOf(false) }
+    val palette = LocalThemePalette.current
+    val socialUiState by socialViewModel.uiState.collectAsState()
 
     BackHandler(enabled = currentTab != ScreenTab.PLAY) {
         currentTab = ScreenTab.PLAY
@@ -222,8 +236,8 @@ fun MainScreen(
         if (isWideScreen) {
             Row(modifier = Modifier.fillMaxSize()) {
                 NavigationRail(
-                    containerColor = ObsidianSurface,
-                    contentColor = DigitGiven,
+                    containerColor = palette.surface,
+                    contentColor = palette.cellGivenText,
                     modifier = Modifier.testTag("navigation_rail")
                 ) {
                     ScreenTab.entries.forEach { tab ->
@@ -239,50 +253,67 @@ fun MainScreen(
                             },
                             label = { Text(tab.title) },
                             colors = NavigationRailItemDefaults.colors(
-                                selectedIconColor = ObsidianViolet,
-                                selectedTextColor = ObsidianViolet,
-                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                indicatorColor = ObsidianSurface
+                                selectedIconColor = palette.primary,
+                                selectedTextColor = palette.primary,
+                                unselectedIconColor = palette.cellNoteText,
+                                unselectedTextColor = palette.cellNoteText,
+                                indicatorColor = palette.surfaceElevated
                             ),
                             modifier = Modifier.testTag(tab.testTag)
                         )
                     }
                     Spacer(modifier = Modifier.weight(1f))
                     IconButton(
-                        onClick = onSignOut,
-                        modifier = Modifier.testTag("sign_out_button")
+                        onClick = { showSettingsSheet = true },
+                        modifier = Modifier.testTag("settings_button")
                     ) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.Logout,
-                            contentDescription = "Sign out",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            imageVector = Icons.Outlined.Settings,
+                            contentDescription = "Settings",
+                            tint = palette.cellNoteText
                         )
                     }
                 }
 
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
                 ) {
-                    TabContent(
+                    TopHeaderBar(
                         tab = currentTab,
-                        sudokuViewModel = sudokuViewModel,
-                        dailyViewModel = dailyViewModel,
-                        stickersViewModel = stickersViewModel,
-                        socialViewModel = socialViewModel,
-                        onNavigateToPlay = { currentTab = ScreenTab.PLAY }
+                        streak = socialUiState.currentStreak,
+                        onOpenSettings = { showSettingsSheet = true },
+                        palette = palette
                     )
+                    Box(modifier = Modifier.fillMaxSize().weight(1f)) {
+                        TabContent(
+                            tab = currentTab,
+                            sudokuViewModel = sudokuViewModel,
+                            dailyViewModel = dailyViewModel,
+                            stickersViewModel = stickersViewModel,
+                            socialViewModel = socialViewModel,
+                            onNavigateToPlay = { currentTab = ScreenTab.PLAY }
+                        )
+                    }
                 }
             }
         } else {
             Scaffold(
-                containerColor = ObsidianBg,
+                containerColor = palette.background,
+                topBar = {
+                    TopHeaderBar(
+                        tab = currentTab,
+                        streak = socialUiState.currentStreak,
+                        onOpenSettings = { showSettingsSheet = true },
+                        palette = palette,
+                        modifier = Modifier.padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
+                    )
+                },
                 bottomBar = {
                     NavigationBar(
-                        containerColor = ObsidianSurface,
-                        contentColor = DigitGiven,
+                        containerColor = palette.surface,
+                        contentColor = palette.cellGivenText,
                         modifier = Modifier.testTag("bottom_nav_bar")
                     ) {
                         ScreenTab.entries.forEach { tab ->
@@ -298,32 +329,15 @@ fun MainScreen(
                                 },
                                 label = { Text(tab.title) },
                                 colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = ObsidianViolet,
-                                    selectedTextColor = ObsidianViolet,
-                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    indicatorColor = ObsidianSurface
+                                    selectedIconColor = palette.primary,
+                                    selectedTextColor = palette.primary,
+                                    unselectedIconColor = palette.cellNoteText,
+                                    unselectedTextColor = palette.cellNoteText,
+                                    indicatorColor = palette.surfaceElevated
                                 ),
                                 modifier = Modifier.testTag(tab.testTag)
                             )
                         }
-                        NavigationBarItem(
-                            selected = false,
-                            onClick = onSignOut,
-                            icon = {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Outlined.Logout,
-                                    contentDescription = "Sign out"
-                                )
-                            },
-                            label = { Text("Sign Out") },
-                            colors = NavigationBarItemDefaults.colors(
-                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                indicatorColor = ObsidianSurface
-                            ),
-                            modifier = Modifier.testTag("sign_out_button")
-                        )
                     }
                 }
             ) { innerPadding ->
@@ -342,6 +356,76 @@ fun MainScreen(
                     )
                 }
             }
+        }
+    }
+
+    if (showSettingsSheet) {
+        SettingsColumnSheet(
+            socialViewModel = socialViewModel,
+            onDismiss = { showSettingsSheet = false },
+            onSignOut = onSignOut
+        )
+    }
+}
+
+@Composable
+fun TopHeaderBar(
+    tab: ScreenTab,
+    streak: Int,
+    onOpenSettings: () -> Unit,
+    palette: com.example.ui.theme.ThemePalette,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "Obsidian Sudoku",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.ExtraBold,
+                color = palette.cellGivenText
+            )
+
+            // Live streak badge: shows streak for solving ANY puzzle!
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(palette.secondary.copy(alpha = 0.18f))
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                    .testTag("header_streak_badge")
+            ) {
+                Text(
+                    text = "🔥 $streak",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = palette.secondary
+                )
+            }
+        }
+
+        // Secluded Settings in top corner
+        IconButton(
+            onClick = onOpenSettings,
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(palette.card)
+                .testTag("settings_button")
+        ) {
+            Icon(
+                imageVector = Icons.Default.Settings,
+                contentDescription = "Settings",
+                tint = palette.primary,
+                modifier = Modifier.size(22.dp)
+            )
         }
     }
 }
